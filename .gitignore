@@ -20,3 +20,5 @@ recordings/
 .wget-hsts
 .gitconfig
 .local/
+.config/
+.copilot/
