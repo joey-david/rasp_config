@@ -1,0 +1,22 @@
+motor_driver: TB6612FNG
+
+left_motor: a_motor
+right_motor: b_motor
+
+a_motor:
+  pwm: 13 #pin 33
+  in1: 26 #pin 37
+  in2: 19 #pin 35
+
+b_motor:
+  pwm: 16 #pin 36 
+  in1: 21 #pin 40
+  in2: 20 #pin 38
+
+driver:
+  standby: 6 #pin 31
+
+power:
+  logic_vcc: "Pi 3.3V"
+  motor_vm: "USB-C breakout VBUS"
+  ground: "shared Pi GND + motor supply GND"
