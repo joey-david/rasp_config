@@ -17,7 +17,12 @@ Received the camera and microsd. Microsd doesn't work, it's counterfeit :/. Came
 
 Set up connections with jumper cables and breadboard, and even motors by threading the jumpers correctly. Test didn't work - I couldn't solder the motor's bridge's pins to its plates as I had no soldering iron. It looks like a massive mess. 
 
-### May 19th
+### May 18th
 
 Soldered bridge pins and plates. Got B backward, A forward, A backward, but B forward isn't working... That's because I shorted power and a B-in while soldering the pins, it took out the RP1 pins of my pi. Changing to another set of GPIO fixed it and the motors spin. Now to custom-build by sticking, mounting the whole thing together, cutting the right custom-length and custom arranged cables between driver, breakout, pi and motors, find emplacements.
 Also have got to find a good battery to power it all.
+Got a wheel spinning worse than the other, (stops spinning faster, as if more friction).
+
+### May 19th
+Got a short-ish microusb cable for onboard feeding of the pi via portable battery. 
+Got rid of the breadboard, starting manual stripping of male-female cables and reassembly into appropriate size female-female to join the pi to the driver/bridge, 5/9 
