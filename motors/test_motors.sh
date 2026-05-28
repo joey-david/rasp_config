@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-standby=19
-apwm=6
+standby=26
+apwm=12
 ain1=16
-ain2=13
-bpwm=4
-bin1=17
-bin2=5
+ain2=6
+bpwm=13
+bin1=20
+bin2=21
 
 dump() {
   echo "== pin states =="

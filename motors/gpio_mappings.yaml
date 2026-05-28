@@ -1,22 +1,35 @@
 motor_driver: TB6612FNG
 
+# New Pi constrained layout: physical pins 1-26 are occupied.
+# Uses only physical pins 29-40, excluding 27/28 ID EEPROM and 30/34/39 GND.
+# Requires ReSpeaker/I2S disabled so GPIO19/20/21 are free.
+
 left_motor: a_motor
 right_motor: b_motor
 
 a_motor:
-  pwm: 6 #pin 31
-  in1: 16 #pin 36
-  in2: 13 #pin 33
+  pwm: 12 # physical pin 32
+  in1: 16 # physical pin 36 (moved from GPIO5/pin29)
+  in2: 6  # physical pin 31
 
 b_motor:
-  pwm: 4 #pin 7 (was 21, pin 40 - dead)
-  in1: 17 #pin 11 (was 20, pin 38 - dead)
-  in2: 5 #pin 29 (was 26, pin 37 - dead)
+  pwm: 13 # physical pin 33
+  in1: 20 # physical pin 38, freed by disabling I2S/ReSpeaker
+  in2: 21 # physical pin 40, freed by disabling I2S/ReSpeaker
 
 driver:
-  standby: 19 #pin 35
+  standby: 26 # physical pin 37
+
+spare_free_after_reboot:
+  gpio16: "physical pin 36"
+  gpio19: "physical pin 35, freed by disabling I2S/ReSpeaker"
+
+reserved_or_unusable:
+  pins_1_to_26: "occupied externally per current build"
+  physical_27_28: "GPIO0/GPIO1 ID EEPROM/HAT pins; avoid"
+  physical_30_34_39: "GND"
 
 power:
   logic_vcc: "Pi 3.3V"
-  motor_vm: "USB-C breakout VBUS"
+  motor_vm: "external motor supply VBUS"
   ground: "shared Pi GND + motor supply GND"

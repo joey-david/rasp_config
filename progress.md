@@ -26,3 +26,11 @@ Got a wheel spinning worse than the other, (stops spinning faster, as if more fr
 ### May 19th
 Got a short-ish microusb cable for onboard feeding of the pi via portable battery. 
 Got rid of the breadboard, starting manual stripping of male-female cables and reassembly into appropriate size female-female to join the pi to the driver/bridge, 5/9 
+
+### May 20th
+completed pi pinnings, linked driver to motors and made breakout connections. Mounted it together, didn't work. Possible short between gnd and vcc on the driver.
+
+### May 28th
+
+Moved to a replacement Raspberry Pi after the old one was fried during the earlier wiring/power mistakes. Remapped the TB6612 motor controls to the available physical pins 29-40 and disabled the ReSpeaker/I2S overlay to free pins 35/38/40. Added smoother `lgpio` 1 kHz PWM motor testers. After chasing GPIO and driver hypotheses, the final blocker was just a dead cable; replacing it made the motors work.
+
