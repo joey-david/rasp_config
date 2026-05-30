@@ -1,5 +1,5 @@
 [Unit]
-Description=Modern OV5647 Raspberry Pi Camera Web UI
+Description=Mischief Bot Web Interface
 After=network-online.target
 Wants=network-online.target
 
@@ -7,12 +7,13 @@ Wants=network-online.target
 Type=simple
 User=joey
 Group=joey
-WorkingDirectory=/home/joey/camera
-Environment=CAMERA_RECORD_DIR=/home/joey/camera-recordings
+WorkingDirectory=/home/joey
 Environment=CAMERA_WIDTH=1296
 Environment=CAMERA_HEIGHT=972
-Environment=CAMERA_FPS=15
-ExecStart=/usr/bin/python3 /home/joey/camera/app.py
+Environment=CAMERA_FPS=30
+Environment=MOTOR_POWER=50
+Environment=MOTOR_PWM_FREQ=1000
+ExecStart=/usr/bin/python3 /home/joey/web_interface.py
 Restart=on-failure
 RestartSec=3
 

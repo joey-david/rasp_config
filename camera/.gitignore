@@ -1,9 +1,0 @@
-__pycache__/
-*.pyc
-*.log
-*.tmp
-*.jpg
-*.jpeg
-*.mjpeg
-camera-recordings/
-recordings/
