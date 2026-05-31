@@ -127,6 +127,11 @@ class BoxTracker:
         with self._lock:
             return {"tracks": self._tracks_unlocked(), "frame_buffer": len(self.frames), "error": self.error, "backend": "lk-flow"}
 
+    def has_active(self):
+        with self._lock:
+            self._prune()
+            return bool(self.active)
+
     def _nearest(self, t):
         return min(self.frames, key=lambda f: abs(f["t"] - t))
 

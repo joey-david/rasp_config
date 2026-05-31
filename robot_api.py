@@ -20,6 +20,7 @@ class RobotAPI:
         self._status_cache = {}
         self._status_at = 0.0
         self._status_ttl = 0.1
+        self._last_drive_seq = -1
 
     @property
     def direction(self): return self.motion.direction
@@ -42,14 +43,22 @@ class RobotAPI:
         self._status_at = 0.0
         return self.motion.stop()
 
-    def drive_keys(self, keys, power=None):
+    def drive_keys(self, keys, power=None, seq=None):
+        try:
+            seq = int(seq)
+        except Exception:
+            seq = None
+        if seq is not None and seq < self._last_drive_seq:
+            return self.drive_status(stale=True)
+        if seq is not None:
+            self._last_drive_seq = seq
         clean = "".join(c for c in str(keys).lower() if c in "wasd")
         self.control = {"mode": "manual" if clean else "idle", "keys": clean, "source": "web"}
-        self.motion.drive_keys(keys, power); enforce_safety(self); return self.status(force=True)
+        self.motion.drive_keys(keys, power); enforce_safety(self); return self.drive_status()
 
     def drive_tank(self, left, right):
         self.control = {"mode": "manual", "keys": "", "source": "tank"}
-        self.motion.tank(left, right); enforce_safety(self); return self.status(force=True)
+        self.motion.tank(left, right); enforce_safety(self); return self.drive_status()
 
     def set_velocity(self, linear, angular):
         self.control = {"mode": "auto", "keys": "", "source": "layer2"}
@@ -61,6 +70,15 @@ class RobotAPI:
     def ingest_detections(self, payload):
         self._status_at = 0.0
         return self.perception.ingest(payload)
+
+    def drive_status(self, stale=False):
+        self._status_at = 0.0
+        return {
+            "motion": self.motion.brief_status(),
+            "control": self.control,
+            "safety": safety_status(),
+            "stale": stale,
+        }
 
     def resolve_object(self, query, prefer_visible=True):
         return self.perception.best(query) or self.memory.resolve(query, [], prefer_visible)

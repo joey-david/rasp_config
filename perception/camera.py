@@ -51,7 +51,7 @@ class Camera:
     def __init__(self):
         self.settings = {"fps": clamp(FPS, 1, 30, 30), "hflip": False, "vflip": False, "crop": 0}
         self.frame, self.frame_at, self.error = None, 0, ""
-        self.gray, self.gray_at = None, 0
+        self.gray, self.gray_at, self._gray_source_at = None, 0, 0
         self._version = 0
         self._cv = threading.Condition()
         self._stop = threading.Event()
@@ -123,10 +123,8 @@ class Camera:
                     if self._stop.is_set() or version != self._version:
                         break
                     cropped = self.crop(frame)
-                    gray = self.make_gray(cropped)
                     with self._cv:
                         self.frame, self.frame_at, self.error = cropped, time.time(), ""
-                        self.gray, self.gray_at = gray, self.frame_at if gray is not None else 0
                         self._cv.notify_all()
             except Exception as e:
                 with self._cv: self.error = str(e)
@@ -152,12 +150,18 @@ class Camera:
 
     def gray_snapshot(self, timeout=5):
         end = time.time() + timeout
+        while time.time() < end:
+            with self._cv:
+                frame, frame_at = self.frame, self.frame_at
+                if frame and frame_at != self._gray_source_at:
+                    break
+                self._cv.wait(min(.1, max(0, end - time.time())))
+        else:
+            return self.gray, self.gray_at
+        gray = self.make_gray(frame)
         with self._cv:
-            seen = self.gray_at
-            while time.time() < end:
-                if self.gray is not None and self.gray_at != seen:
-                    return self.gray, self.gray_at
-                self._cv.wait(max(.1, end - time.time()))
+            if gray is not None and frame_at >= self._gray_source_at:
+                self.gray, self.gray_at, self._gray_source_at = gray, frame_at, frame_at
             return self.gray, self.gray_at
 
     def frames(self):

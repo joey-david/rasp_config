@@ -3,7 +3,7 @@ let recording=false, lastState={};
 
 function keys(){return valid.filter(k=>down.has(k)).join("")}
 function paintKeys(){for(const k of valid){$("h"+k).classList.toggle("on",down.has(k))}$("powerOut").textContent=power.value+"%"}
-async function post(path,data){const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});return r.json().catch(()=>({}))}
+async function post(path,data,signal){const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data),signal});return r.json().catch(()=>({}))}
 function frameSize(s){const [w,h]=(s.camera?.size||"1296x972").split("x").map(Number);return [w||1296,h||972]}
 
 function drawBox(d, style, label){
@@ -46,6 +46,12 @@ function applyState(s){
   paintHud(s);drawOverlay(s);
 }
 
+function applyDriveState(s){
+  if(!s.motion)return;
+  $("left").textContent=s.motion.left+"%";$("right").textContent=s.motion.right+"%";
+  if(s.control)paintHud(s);
+}
+
 async function toggleRecord(){
   try{
     const r=await fetch(recorder+(recording?"/stop":"/start"),{method:"POST"}),j=await r.json();
@@ -53,8 +59,26 @@ async function toggleRecord(){
   }catch(e){$("err").textContent="Recorder offline: run bin/record-server";$("err").classList.remove("hide")}
 }
 
-async function drive(){paintKeys();applyState(await post("/drive",{keys:keys(),power:+power.value}))}
-async function stopNow(){down.clear();await drive()}
+let driveInFlight=false, driveDirty=false, driveAbort=null, lastDriveAt=0, driveSeq=0;
+async function drive(force=false){
+  paintKeys();
+  if(driveInFlight){
+    driveDirty=true;
+    if(force && driveAbort)driveAbort.abort();
+    else return;
+  }
+  const wait=Math.max(0,50-(performance.now()-lastDriveAt));
+  if(wait && !force)await new Promise(r=>setTimeout(r,wait));
+  driveInFlight=true;driveDirty=false;driveAbort=new AbortController();lastDriveAt=performance.now();
+  const seq=++driveSeq;
+  try{applyDriveState(await post("/drive",{keys:keys(),power:+power.value,seq},driveAbort.signal))}
+  catch(e){if(e.name!=="AbortError"){driveDirty=true}}
+  finally{
+    driveInFlight=false;driveAbort=null;
+    if(driveDirty)drive();
+  }
+}
+async function stopNow(){down.clear();await drive(true)}
 async function settings(){
   const data={crop:+$("crop").value,hflip:$("hflip").checked,vflip:$("vflip").checked};
   $("cropOut").textContent=data.crop+"%";applyState(await post("/camera/settings",data));
@@ -66,7 +90,7 @@ window.addEventListener("blur",stopNow);
 power.addEventListener("input",drive);
 for(const id of ["crop","hflip","vflip"])$(id).addEventListener("input",settings);
 $("showDetections").addEventListener("input",()=>fetch("/api/state").then(r=>r.json()).then(applyState));
-setInterval(()=>{if(down.size)drive()},25);
+setInterval(()=>{if(down.size)drive()},50);
 setInterval(()=>fetch("/api/state").then(r=>r.json()).then(applyState),350);
 fetch(recorder+"/status").then(r=>r.json()).then(j=>{recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording)}).catch(()=>{});
 fetch("/api/state").then(r=>r.json()).then(applyState);

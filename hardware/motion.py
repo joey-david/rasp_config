@@ -110,3 +110,14 @@ class Motion:
             "power": self.power,
             "backend": self.backend.status(),
         }
+
+    def brief_status(self) -> dict:
+        return {
+            "left": self.left,
+            "right": self.right,
+            "target_left": self.target_left,
+            "target_right": self.target_right,
+            "speed": self.speed,
+            "direction": self.direction,
+            "power": self.power,
+        }

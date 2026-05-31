@@ -1,6 +1,7 @@
 """Remote perception ingest from the PC visual cortex."""
 import threading
 import time
+import os
 
 from .receiver import DetectionReceiver
 from .tracker import BoxTracker
@@ -13,6 +14,7 @@ class RemotePerception:
         self.motion = motion
         self.receiver = DetectionReceiver()
         self.tracker = BoxTracker()
+        self.tracker_hz = float(os.getenv("TRACKER_HZ", "10"))
         self.fresh_seconds = fresh_seconds
         self.stale_seconds = stale_seconds
         self.error = ""
@@ -38,7 +40,12 @@ class RemotePerception:
 
     def _frame_worker(self):
         while not self._stop.is_set():
+            t0 = time.time()
             try:
+                recent = self.receiver.received_at and time.time() - self.receiver.received_at < 3.0
+                if not recent and not self.tracker.has_active():
+                    time.sleep(0.25)
+                    continue
                 motion = self.motion.status() if self.motion else {}
                 if hasattr(self.camera, "gray_snapshot"):
                     gray, frame_at = self.camera.gray_snapshot(timeout=1)
@@ -49,6 +56,10 @@ class RemotePerception:
             except Exception as e:
                 self.error = str(e)
                 time.sleep(0.1)
+            elapsed = time.time() - t0
+            period = 1 / max(1.0, self.tracker_hz)
+            if elapsed < period:
+                time.sleep(period - elapsed)
 
     def ingest(self, payload):
         packet, detections = self.receiver.ingest(payload)

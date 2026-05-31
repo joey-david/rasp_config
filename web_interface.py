@@ -13,6 +13,11 @@ from robot_api import robot
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 
 
+class RobotServer(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 64
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
 
@@ -38,7 +43,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p, b = urlparse(self.path).path, self.body()
-        if p == "/drive": return self.send(200, robot.drive_keys(b.get("keys", ""), b.get("power")))
+        if p == "/drive": return self.send(200, robot.drive_keys(b.get("keys", ""), b.get("power"), b.get("seq")))
         if p == "/motion/stop": return self.send(200, robot.stop())
         if p == "/camera/settings": robot.camera.apply_settings(**b); return self.send(200, robot.status())
         if p == "/api/perception/detections": return self.send(200, robot.ingest_detections(b))
@@ -78,5 +83,5 @@ def shutdown(*_):
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, shutdown); signal.signal(signal.SIGTERM, shutdown)
     robot.start()
-    try: ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+    try: RobotServer(("0.0.0.0", 8080), Handler).serve_forever()
     finally: robot.close()
