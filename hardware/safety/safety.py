@@ -1,12 +1,18 @@
-"""Layer 0 safeguards. For now intentionally a placeholder."""
+"""Layer 0 safeguards. This code must stay local to the Pi."""
+from .danger import EdgeSafety
 
-def edge_detected() -> bool:
-    """Placeholder for cliff/edge sensing, use CNN later."""
-    return False
+edge_safety = EdgeSafety()
+last_veto = ""
 
 def enforce(robot) -> bool:
-    # will need to adjust this logic to get the relative angle and distance of the closest edge and only stop if we're probably likely to go over it 
-    if robot.direction == "forward" and robot.speed > 0 and edge_detected():
+    global last_veto
+    status = edge_safety.check(robot.camera.frame)
+    if robot.direction == "forward" and robot.speed > 0 and status.get("danger"):
         robot.stop()
+        last_veto = status.get("reason", "edge danger")
         return False
+    last_veto = ""
     return True
+
+def status():
+    return {"edge": edge_safety.last, "last_veto": last_veto}

@@ -35,3 +35,6 @@ completed pi pinnings, linked driver to motors and made breakout connections. Mo
 Moved to a replacement Raspberry Pi after the old one was fried during the earlier wiring/power mistakes. Remapped the TB6612 motor controls to the available physical pins 29-40 and disabled the ReSpeaker/I2S overlay to free pins 35/38/40. Added smoother `lgpio` 1 kHz PWM motor testers. After chasing GPIO and driver hypotheses, the final blocker was just a dead cable; replacing it made the motors work.
 The prototype to the prototype runs, using tape and unstable elts. Uneven wheels power makes it turn though. Have issues where one wheel stops being powered and the other starts going full steam if I push the low pwm mode too hard.
 
+### May 30th
+
+Diagnosed: bad motor with exagerated friction. Delayed parts delivery. Starting the software engineering, started the video project. Created level 0 especially - tank, pwm management, web interface redoing, etc. Rethought split of compute: only level 0 will run on pi, advanced visual detection will be on laptop. 

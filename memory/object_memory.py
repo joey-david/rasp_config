@@ -1,7 +1,7 @@
-"""LRU semantic object memory."""
+"""Recent object memory with semantic and crude spatial hints."""
 from collections import OrderedDict
-from difflib import SequenceMatcher
 import time
+from .spatial import enrich
 
 ALIASES = {
     "human": {"person"}, "man": {"person"}, "woman": {"person"}, "kid": {"person"},
@@ -22,17 +22,20 @@ class ObjectMemory:
 
     def remember(self, d):
         now = time.time()
-        box = tuple(d.box)
+        raw = d if isinstance(d, dict) else d.dict()
+        box = tuple(raw.get("box") or (0, 0, 0, 0))
+        label = str(raw.get("label", "")).strip()
+        track = raw.get("track_id") or raw.get("id")
         cx, cy = center(box)
-        key = f"{d.label}:{cx:.1f}:{cy:.1f}"
-        self.items[key] = {
-            "label": d.label,
-            "score": float(d.score),
+        key = str(track or f"{label}:{cx:.1f}:{cy:.1f}")
+        self.items[key] = enrich({
+            **raw,
+            "label": label,
+            "score": float(raw.get("score", raw.get("confidence", 1.0))),
             "box": box,
-            "center": (round(cx, 3), round(cy, 3)),
             "last_seen": now,
-            "source": "memory",
-        }
+            "source": raw.get("source", "memory"),
+        })
         self.items.move_to_end(key)
         self.prune()
 
@@ -54,23 +57,10 @@ class ObjectMemory:
         return [{**v, "age": round(now - v["last_seen"], 1)} for v in reversed(self.items.values())]
 
     def resolve(self, query, visible=(), prefer_visible=True):
-        visible = [
-            {
-                "label": d.label,
-                "score": d.score,
-                "box": d.box,
-                "center": center(d.box),
-                "age": 0,
-                "source": "visible",
-            }
-            for d in visible
-        ]
+        visible = [enrich({**d, "age": 0}) for d in visible or []]
         candidates = visible + self.inventory()
-        scored = [
-            (self.match(query, c, prefer_visible), c)
-            for c in candidates
-        ]
-        scored = [(s, c) for s, c in scored if s > 0.28]
+        scored = [(self.match(query, c, prefer_visible), c) for c in candidates]
+        scored = [(s, c) for s, c in scored if s > 0.45]
         if not scored:
             return None
         score, obj = max(scored, key=lambda x: x[0])
@@ -80,8 +70,11 @@ class ObjectMemory:
     def match(query, obj, prefer_visible=True):
         q, label = query.lower().strip(), obj["label"].lower().strip()
         names = {q, *ALIASES.get(q, set())}
-        base = 1.0 if label in names else SequenceMatcher(None, q, label).ratio()
+        labels = {label, *(a.lower() for a in obj.get("aliases", []))}
+        base = 1.0 if names & labels else 0.0
+        if not base and q in label:
+            base = 0.85
         conf = obj.get("score", 1)
-        fresh = 1.0 if obj["source"] == "visible" else max(0, 1 - obj.get("age", 0) / 300)
-        bonus = 0.12 if prefer_visible and obj["source"] == "visible" else 0
+        fresh = 1.0 if obj.get("age", 0) == 0 else max(0, 1 - obj.get("age", 0) / 300)
+        bonus = 0.12 if prefer_visible and obj.get("age", 0) == 0 else 0
         return base * (0.65 + 0.35 * conf) * (0.75 + 0.25 * fresh) + bonus
