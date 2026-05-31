@@ -1,12 +1,14 @@
 """GPIO/TB6612FNG backend. Nothing above hardware.motion should import this."""
 from pathlib import Path
 import os
+
 import lgpio
 import yaml
 
-PWM_FREQ = int(os.environ.get("MOTOR_PWM_FREQ", "1000")) # spliting of the motor powering, high value to avoid chopped movement
+PWM_FREQ = int(os.environ.get("MOTOR_PWM_FREQ", "1000"))
 ROOT = Path(__file__).resolve().parents[1]
-MAPPING_FILE = Path(os.environ.get("GPIO_MAPPING_FILE", ROOT / "hardware" / "gpio_mappings.yaml")) #get the gpio config
+MAPPING_FILE = Path(os.environ.get("GPIO_MAPPING_FILE", ROOT / "hardware" / "gpio_mappings.yaml"))
+
 
 def load_mapping(path: Path = MAPPING_FILE) -> dict:
     raw = yaml.safe_load(path.read_text()) or {}
@@ -45,7 +47,6 @@ class Motors:
     def _clamp(v):
         return max(-100.0, min(100.0, float(v)))
 
-    # set a speed for one of the motors
     def _set_one(self, name: str, speed: float):
         m = self.cfg["motors"][name]
         speed = -speed if m.get("reversed") else speed
@@ -54,10 +55,8 @@ class Motors:
         lgpio.gpio_write(self.h, m["in2"], in2)
         lgpio.tx_pwm(self.h, m["pwm"], PWM_FREQ, abs(speed))
 
-
     def drive(self, left: float, right: float):
         left, right = round(self._clamp(left), 1), round(self._clamp(right), 1)
-        # if nothing's changed, no need to start new writes
         if (left, right) == self.last:
             return
         lgpio.gpio_write(self.h, self.cfg["standby"], int(left != 0 or right != 0))

@@ -1,0 +1,47 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Robot Driver</title>
+<link rel="stylesheet" href="/static/style.css">
+
+<img id="stream" class="stream" src="/stream.mjpg">
+<canvas id="overlay"></canvas>
+<div class="shade"></div>
+
+<div class="hud" aria-label="drive state">
+  <div id="mode" class="mode">idle</div>
+  <span></span><span id="hw" class="key">W</span><span></span>
+  <span id="ha" class="key">A</span><span id="hs" class="key">S</span><span id="hd" class="key">D</span>
+</div>
+
+<aside id="drawer" class="drawer">
+  <h2>Camera</h2>
+  <label class="group"><span><span class="label">Crop</span><span id="cropOut" class="value">0%</span></span><input id="crop" type="range" min="0" max="75" value="0"></label>
+  <label class="group"><span>Horizontal flip</span><input id="hflip" type="checkbox"></label>
+  <label class="group"><span>Vertical flip</span><input id="vflip" type="checkbox"></label>
+</aside>
+
+<main class="bar" tabindex="0">
+  <label class="group">
+    <span class="stat"><span class="label">Power</span><span id="powerOut" class="value">70%</span></span>
+    <input id="power" type="range" min="0" max="100" value="70">
+  </label>
+
+  <div class="group">
+    <span class="stat"><span class="label">Left</span><span id="left" class="value">0%</span></span>
+    <span class="stat"><span class="label">Right</span><span id="right" class="value">0%</span></span>
+  </div>
+
+  <div class="group pill"><span class="label">Vision</span>&nbsp;<span id="vision">waiting</span></div>
+  <div class="group pill"><span class="label">Seen</span>&nbsp;<span id="seen">none</span></div>
+  <div class="group pill"><span class="label">Map</span>&nbsp;<span id="map">empty</span></div>
+  <div class="group pill"><span class="label">Memory</span>&nbsp;<span id="memory">empty</span></div>
+
+  <label class="group"><input id="showDetections" type="checkbox" checked> Vision</label>
+  <button id="record" data-action="record" onclick="toggleRecord()">Record</button>
+  <button class="danger" onclick="stopNow()">Stop</button>
+  <button onclick="document.documentElement.requestFullscreen?.()">Full</button>
+  <button class="icon" data-action="settings" aria-label="Camera settings" onclick="$('drawer').classList.toggle('open')">☰</button>
+  <div id="err" class="err hide"></div>
+</main>
+
+<script src="/static/cockpit.js"></script>

@@ -2,10 +2,17 @@
 import io, os, signal, subprocess, threading, time
 from PIL import Image
 
+try:
+    import cv2
+    import numpy as np
+except Exception:  # keep camera usable without tracker deps
+    cv2 = np = None
+
 WIDTH = int(os.getenv("CAMERA_WIDTH", 1296))
 HEIGHT = int(os.getenv("CAMERA_HEIGHT", 972))
 FPS = int(os.getenv("CAMERA_FPS", 30))
 MODE = os.getenv("CAMERA_MODE", "").strip()
+GRAY_SIZE = (320, 240)
 
 
 def clamp(v, lo, hi, default):
@@ -19,27 +26,22 @@ def yes(v, default=False):
 
 def jpeg_frames(stream):
     buf = bytearray()
-
     while True:
         chunk = stream.read(8192)
         if not chunk:
             return
-
         buf.extend(chunk)
-
         while True:
             start = buf.find(b"\xff\xd8")
             if start < 0:
                 if len(buf) > 1024 * 1024:
                     del buf[:-2]
                 break
-
             end = buf.find(b"\xff\xd9", start + 2)
             if end < 0:
                 if start > 0:
                     del buf[:start]
                 break
-
             frame = bytes(buf[start:end + 2])
             del buf[:end + 2]
             yield frame
@@ -49,6 +51,7 @@ class Camera:
     def __init__(self):
         self.settings = {"fps": clamp(FPS, 1, 30, 30), "hflip": False, "vflip": False, "crop": 0}
         self.frame, self.frame_at, self.error = None, 0, ""
+        self.gray, self.gray_at = None, 0
         self._version = 0
         self._cv = threading.Condition()
         self._stop = threading.Event()
@@ -101,18 +104,29 @@ class Camera:
         except Exception:
             return frame
 
+    def make_gray(self, frame):
+        if not (frame and cv2 and np):
+            return None
+        arr = np.frombuffer(frame, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        return cv2.resize(img, GRAY_SIZE, interpolation=cv2.INTER_AREA)
+
     def _worker(self):
         while not self._stop.is_set():
             with self._cv:
                 version, settings = self._version, self.settings.copy()
-
             proc = subprocess.Popen(self.cmd(settings), stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
             try:
                 for frame in jpeg_frames(proc.stdout):
                     if self._stop.is_set() or version != self._version:
                         break
+                    cropped = self.crop(frame)
+                    gray = self.make_gray(cropped)
                     with self._cv:
-                        self.frame, self.frame_at, self.error = self.crop(frame), time.time(), ""
+                        self.frame, self.frame_at, self.error = cropped, time.time(), ""
+                        self.gray, self.gray_at = gray, self.frame_at if gray is not None else 0
                         self._cv.notify_all()
             except Exception as e:
                 with self._cv: self.error = str(e)
@@ -136,6 +150,16 @@ class Camera:
                 self._cv.wait(max(.1, end - time.time()))
             return self.frame
 
+    def gray_snapshot(self, timeout=5):
+        end = time.time() + timeout
+        with self._cv:
+            seen = self.gray_at
+            while time.time() < end:
+                if self.gray is not None and self.gray_at != seen:
+                    return self.gray, self.gray_at
+                self._cv.wait(max(.1, end - time.time()))
+            return self.gray, self.gray_at
+
     def frames(self):
         seen = 0
         while not self._stop.is_set():
@@ -150,6 +174,7 @@ class Camera:
         return {
             "settings": self.settings.copy(),
             "age": None if not self.frame_at else round(time.time() - self.frame_at, 2),
+            "gray": bool(self.gray_at),
             "error": self.error,
             "size": f"{WIDTH}x{HEIGHT}",
         }

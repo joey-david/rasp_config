@@ -1,0 +1,24 @@
+*{box-sizing:border-box}
+body{margin:0;background:#050505;color:#f7f7fb;font-family:system-ui,sans-serif;overflow:hidden}
+.stream,#overlay{position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;background:#000}
+.stream{z-index:0}#overlay{z-index:1;background:transparent;pointer-events:none}
+.shade{position:fixed;inset:0;z-index:2;background:linear-gradient(180deg,rgba(0,0,0,.05),transparent 45%,rgba(0,0,0,.42));pointer-events:none}
+
+.bar{position:fixed;z-index:3;left:12px;right:12px;bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid #ffffff18;border-radius:20px;background:#07090d78;backdrop-filter:blur(22px) saturate(150%);box-shadow:0 18px 60px #0007}
+.group{display:flex;gap:8px;align-items:center;padding:7px 10px;border-radius:15px;background:#ffffff10}
+.stat{min-width:52px}.label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#c5c7d0}.value{font-weight:850;font-size:13px}
+.pill{font-size:12px;color:#e3e5ee;max-width:290px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button{border:0;border-radius:14px;height:34px;padding:0 13px;font-weight:850;background:#f7f7fb;color:#080a0d}
+.icon{width:36px;padding:0;font-size:19px}.danger{background:#fb7185;color:#1b0205}.recording{background:#f43f5e;color:white}
+input{accent-color:white}input[type=range]{width:180px}
+
+.key{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#ffffff18;color:#b8bac4;font-size:12px;font-weight:850}
+.on{background:#f7f7fb;color:#080a0d}
+.hud{position:fixed;z-index:3;top:12px;left:12px;display:grid;grid-template-columns:28px 28px 28px;gap:5px;padding:8px;border:1px solid #ffffff18;border-radius:16px;background:#080a0d8c;backdrop-filter:blur(18px)}
+.hud .mode{grid-column:1/4;text-align:center;font-size:11px;color:#d3d5df;text-transform:uppercase;font-weight:850}
+
+.drawer{position:fixed;z-index:5;right:12px;bottom:72px;width:min(330px,calc(100vw - 24px));display:none;gap:10px;flex-direction:column;padding:14px;border:1px solid #ffffff20;border-radius:22px;background:#080a0dcc;backdrop-filter:blur(24px) saturate(150%);box-shadow:0 18px 70px #000b}
+.drawer.open{display:flex}.drawer h2{font-size:14px;margin:0 0 2px}.drawer .group{justify-content:space-between}.drawer input[type=range]{width:160px}
+
+.err{flex-basis:100%;font:12px ui-monospace,monospace;color:#fecdd3;white-space:pre-wrap}.hide{display:none}
+@media(max-width:760px){.bar{max-height:35vh;overflow:auto}.pill{max-width:170px}input[type=range]{width:130px}}

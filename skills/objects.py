@@ -1,7 +1,19 @@
 """Layer 2 object skills: target resolution and non-actuating servo prototypes."""
+from dataclasses import asdict, dataclass
 import time
 
 SEARCH_SECONDS = 10.0
+
+
+@dataclass(frozen=True)
+class ServoDecision:
+    phase: str
+    linear: float
+    angular: float
+    stop_reason: str | None = None
+
+    def dict(self):
+        return asdict(self)
 
 
 class ObjectSkills:
@@ -16,7 +28,7 @@ class ObjectSkills:
         end = time.time() + timeout
         self.current = {"skill": "find", "phase": "resolve", "target": target}
         best = self.robot.resolve_object(target, prefer_visible=True)
-        if best and best.get("age", 1) == 0:
+        if best and best.get("source") == "pi-tracker" and best.get("quality", 0) >= 0.4:
             self.current["phase"] = "found"
             return best
         if best and not allow_motion:
@@ -31,7 +43,7 @@ class ObjectSkills:
             if allow_motion:
                 self.robot.set_velocity(0, 18)
             obj = self.robot.resolve_object(target, prefer_visible=True)
-            if obj and obj.get("age", 1) == 0:
+            if obj and obj.get("source") == "pi-tracker" and obj.get("quality", 0) >= 0.4:
                 self.robot.stop()
                 self.current["phase"] = "found"
                 return obj
@@ -40,29 +52,46 @@ class ObjectSkills:
         self.robot.stop()
         return self.robot.resolve_object(target, prefer_visible=False) or best
 
-    def goto(self, target: str):
+    def plan_goto(self, target: str, contact=False):
         obj = self.find(target)
         if not obj:
             self.current["phase"] = "failed"
             return {"ok": False, "error": f"no match for {target!r}"}
-        cmd = self.visual_servo_command(obj)
-        return {"ok": True, "action": "goto", "target": obj, "prototype_motion": cmd}
+        cmd = self.visual_servo_command(obj, contact).dict()
+        self.current["phase"] = cmd["phase"]
+        return {"ok": True, "target": obj, "command": cmd}
+
+    def step_goto(self, target: str, contact=False, actuate=False):
+        plan = self.plan_goto(target, contact)
+        if plan.get("ok") and actuate:
+            c = plan["command"]
+            self.robot.set_velocity(c["linear"], c["angular"])
+        return plan
+
+    def goto(self, target: str):
+        plan = self.step_goto(target, actuate=False)
+        return {**plan, "action": "goto", "prototype_motion": plan.get("command")}
 
     def push(self, target: str):
-        obj = self.find(target)
-        if not obj:
-            self.current["phase"] = "failed"
-            return {"ok": False, "error": f"no match for {target!r}"}
-        cmd = self.visual_servo_command(obj, contact=True)
-        return {"ok": True, "action": "push", "target": obj, "prototype_motion": cmd}
+        plan = self.step_goto(target, contact=True, actuate=False)
+        return {**plan, "action": "push", "prototype_motion": plan.get("command")}
 
     @staticmethod
     def visual_servo_command(obj, contact=False):
         cx = obj.get("center", (0.5, 0.5))[0]
         error = cx - 0.5
         close = obj.get("distance_proxy", 99) < (2.4 if contact else 3.0)
-        return {
-            "linear": 0 if close else round(max(0, 18 * (1 - abs(error) * 2)), 1),
-            "angular": round(error * 40, 1),
-            "stop_reason": "close" if close else None,
-        }
+        age, quality = float(obj.get("age", 99)), float(obj.get("quality", 0))
+        if obj.get("source") != "pi-tracker":
+            return ServoDecision("searching", 0, round(error * 25, 1), "memory-only")
+        if age > 0.8 or quality < 0.25:
+            return ServoDecision("reacquire", 0, round(error * 25, 1), "stale-track")
+        cautious = age > 0.25 or quality < 0.5
+        centered = max(0, 1 - abs(error) * 2)
+        base = 10 if cautious else 18
+        return ServoDecision(
+            phase="done" if close else "centering" if abs(error) > 0.15 else "approaching",
+            linear=0 if close or abs(error) > 0.35 else round(base * centered * max(0.2, quality), 1),
+            angular=round(error * 40, 1),
+            stop_reason="close" if close else None,
+        )

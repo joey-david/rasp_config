@@ -1,112 +1,85 @@
 """Remote perception ingest from the PC visual cortex."""
+import threading
 import time
 
-
-def _num(v, default=0.0):
-    try:
-        return float(v)
-    except Exception:
-        return default
-
-
-def _box(raw):
-    vals = list(raw or (0, 0, 0, 0))[:4]
-    vals += [0] * (4 - len(vals))
-    x1, y1, x2, y2 = [_num(v) for v in vals]
-    if max(x1, y1, x2, y2) > 1.5:
-        return None
-    x1, x2 = sorted((max(0, min(1, x1)), max(0, min(1, x2))))
-    y1, y2 = sorted((max(0, min(1, y1)), max(0, min(1, y2))))
-    return (x1, y1, x2, y2)
+from .receiver import DetectionReceiver
+from .tracker import BoxTracker
 
 
 class RemotePerception:
-    def __init__(self, memory=None, fresh_seconds=1.0, stale_seconds=10.0):
+    def __init__(self, memory=None, camera=None, motion=None, fresh_seconds=1.0, stale_seconds=10.0):
         self.memory = memory
+        self.camera = camera
+        self.motion = motion
+        self.receiver = DetectionReceiver()
+        self.tracker = BoxTracker()
         self.fresh_seconds = fresh_seconds
         self.stale_seconds = stale_seconds
-        self.latest = []
-        self.map = []
-        self.last_packet = {}
         self.error = ""
-        self.received_at = 0.0
+        self._stop = threading.Event()
+        self._worker = None
 
-    def start(self): pass
+    @property
+    def detections(self):
+        return self.receiver.latest
 
-    def stop(self): pass
+    @property
+    def tracks(self):
+        return self.tracker.tracks()
+
+    def start(self):
+        if not self.camera or self._worker:
+            return
+        self._worker = threading.Thread(target=self._frame_worker, daemon=True)
+        self._worker.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _frame_worker(self):
+        while not self._stop.is_set():
+            try:
+                motion = self.motion.status() if self.motion else {}
+                if hasattr(self.camera, "gray_snapshot"):
+                    gray, frame_at = self.camera.gray_snapshot(timeout=1)
+                    self.tracker.add_gray(gray, frame_at, motion)
+                else:
+                    frame = self.camera.snapshot(timeout=1)
+                    self.tracker.add_frame(frame, self.camera.frame_at, motion)
+            except Exception as e:
+                self.error = str(e)
+                time.sleep(0.1)
 
     def ingest(self, payload):
-        now = time.time()
-        packet = dict(payload or {})
-        packet.setdefault("source", "pc")
-        packet["received_at"] = now
-        detections = []
-
-        for i, item in enumerate(packet.get("detections") or []):
-            box = _box(item.get("box"))
-            label = str(item.get("label") or item.get("name") or "").strip()
-            if not label or not box:
-                continue
-            detections.append({
-                **item,
-                "id": item.get("id") or f"{packet.get('frame_id', 'frame')}:{i}",
-                "label": label,
-                "score": _num(item.get("score", item.get("confidence", 1.0)), 1.0),
-                "box": box,
-                "source": packet["source"],
-                "model": packet.get("model", item.get("model", "remote")),
-                "frame_id": packet.get("frame_id"),
-                "captured_at": packet.get("captured_at"),
-                "inferred_at": packet.get("inferred_at"),
-                "sent_at": packet.get("sent_at"),
-                "received_at": now,
-            })
-
-        self.latest = detections
-        self.map = packet.get("map") or []
-        self.last_packet = packet
-        self.received_at = now
+        packet, detections = self.receiver.ingest(payload)
         self.error = ""
+        tracks = self.tracker.ingest({**packet, "detections": detections})
         if self.memory:
-            self.memory.update(detections)
+            self.memory.update([t for t in tracks if t.get("quality", 0) > 0.4])
         return self.status()
 
     def is_fresh(self):
-        return bool(self.received_at and time.time() - self.received_at <= self.fresh_seconds)
+        return bool(self.receiver.received_at and time.time() - self.receiver.received_at <= self.fresh_seconds)
+
+    def best(self, query):
+        return self.tracker.best(query)
 
     def status(self):
         now = time.time()
-        age = None if not self.received_at else round(now - self.received_at, 3)
+        age = None if not self.receiver.received_at else round(now - self.receiver.received_at, 3)
+        tracker = self.tracker.status()
         return {
-            "detections": self.latest,
-            "latest": self.latest,
-            "map": self.map,
+            "detections": self.receiver.latest,
+            "latest": self.receiver.latest,
+            "tracks": tracker["tracks"],
+            "map": self.receiver.map,
             "age": age,
             "fresh": self.is_fresh(),
             "stale": bool(age is None or age > self.stale_seconds),
-            "latency": self.latency_status(now),
+            "latency": self.receiver.latency_status(now),
             "error": self.error,
             "backend": "remote-pc",
-            "source": self.last_packet.get("source", "pc"),
-            "model": self.last_packet.get("model"),
+            "source": self.receiver.last_packet.get("source", "pc"),
+            "model": self.receiver.last_packet.get("model"),
+            "tracker": {k: v for k, v in tracker.items() if k != "tracks"},
         }
-
-    def latency_status(self, now=None):
-        now = now or time.time()
-        p = self.last_packet
-        pc = p.get("pc_timing") or {}
-        started, got, inferred, sent = (
-            pc.get("snapshot_started_at"),
-            pc.get("snapshot_received_at"),
-            pc.get("infer_done_at"),
-            pc.get("sent_at"),
-        )
-        try:
-            return {
-                "snapshot_ms": None if not (started and got) else round((got - started) * 1000, 1),
-                "infer_ms": None if not (got and inferred) else round((inferred - got) * 1000, 1),
-                "post_clock_skew_ms": None if not (sent and self.received_at) else round((self.received_at - sent) * 1000, 1),
-                "age_on_pi_ms": None if not self.received_at else round((now - self.received_at) * 1000, 1),
-            }
-        except Exception:
-            return {}

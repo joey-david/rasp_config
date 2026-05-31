@@ -1,19 +1,8 @@
 """Recent object memory with semantic and crude spatial hints."""
 from collections import OrderedDict
 import time
+from mischief_common.object_geometry import center, label_score
 from .spatial import enrich
-
-ALIASES = {
-    "human": {"person"}, "man": {"person"}, "woman": {"person"}, "kid": {"person"},
-    "stool": {"chair"}, "seat": {"chair", "sofa"}, "sofa": {"couch"},
-    "table": {"dining table"}, "desk": {"dining table"},
-    "mug": {"cup"}, "glass": {"cup", "wine glass"}, "drink": {"cup", "bottle"},
-    "phone": {"cell phone"}, "mobile": {"cell phone"},
-}
-
-def center(box):
-    x1, y1, x2, y2 = box
-    return ((x1 + x2) / 2, (y1 + y2) / 2)
 
 class ObjectMemory:
     def __init__(self, max_items=128, ttl=300):
@@ -34,7 +23,8 @@ class ObjectMemory:
             "score": float(raw.get("score", raw.get("confidence", 1.0))),
             "box": box,
             "last_seen": now,
-            "source": raw.get("source", "memory"),
+            "observed_source": raw.get("source", "unknown"),
+            "source": "memory",
         })
         self.items.move_to_end(key)
         self.prune()
@@ -68,13 +58,4 @@ class ObjectMemory:
 
     @staticmethod
     def match(query, obj, prefer_visible=True):
-        q, label = query.lower().strip(), obj["label"].lower().strip()
-        names = {q, *ALIASES.get(q, set())}
-        labels = {label, *(a.lower() for a in obj.get("aliases", []))}
-        base = 1.0 if names & labels else 0.0
-        if not base and q in label:
-            base = 0.85
-        conf = obj.get("score", 1)
-        fresh = 1.0 if obj.get("age", 0) == 0 else max(0, 1 - obj.get("age", 0) / 300)
-        bonus = 0.12 if prefer_visible and obj.get("age", 0) == 0 else 0
-        return base * (0.65 + 0.35 * conf) * (0.75 + 0.25 * fresh) + bonus
+        return label_score(query, obj, prefer_visible)

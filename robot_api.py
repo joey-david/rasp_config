@@ -1,4 +1,6 @@
 """Central robot facade. Web, skills, and reasoning call this, not hardware directly."""
+import time
+
 from hardware.motion import Motion
 from hardware.safety.safety import enforce as enforce_safety, status as safety_status
 from perception.camera import Camera
@@ -12,9 +14,12 @@ class RobotAPI:
         self.camera = Camera()
         self.motion = Motion()
         self.memory = ObjectMemory()
-        self.perception = RemotePerception(self.memory)
+        self.perception = RemotePerception(self.memory, self.camera, self.motion)
         self.skills = ObjectSkills(self)
         self.control = {"mode": "idle", "keys": "", "source": "none"}
+        self._status_cache = {}
+        self._status_at = 0.0
+        self._status_ttl = 0.1
 
     @property
     def direction(self): return self.motion.direction
@@ -34,42 +39,57 @@ class RobotAPI:
 
     def stop(self):
         self.control = {"mode": "idle", "keys": "", "source": "stop"}
+        self._status_at = 0.0
         return self.motion.stop()
 
     def drive_keys(self, keys, power=None):
         clean = "".join(c for c in str(keys).lower() if c in "wasd")
         self.control = {"mode": "manual" if clean else "idle", "keys": clean, "source": "web"}
-        self.motion.drive_keys(keys, power); enforce_safety(self); return self.status()
+        self.motion.drive_keys(keys, power); enforce_safety(self); return self.status(force=True)
 
     def drive_tank(self, left, right):
         self.control = {"mode": "manual", "keys": "", "source": "tank"}
-        self.motion.tank(left, right); enforce_safety(self); return self.status()
+        self.motion.tank(left, right); enforce_safety(self); return self.status(force=True)
 
     def set_velocity(self, linear, angular):
         self.control = {"mode": "auto", "keys": "", "source": "layer2"}
+        self._status_at = 0.0
         out = self.motion.set_velocity(linear, angular); enforce_safety(self); return out
 
     def snapshot(self): return self.camera.snapshot()
 
-    def ingest_detections(self, payload): return self.perception.ingest(payload)
+    def ingest_detections(self, payload):
+        self._status_at = 0.0
+        return self.perception.ingest(payload)
 
     def resolve_object(self, query, prefer_visible=True):
-        visible = self.perception.latest if self.perception.is_fresh() else []
-        return self.memory.resolve(query, visible, prefer_visible)
+        return self.perception.best(query) or self.memory.resolve(query, [], prefer_visible)
 
     def goto(self, target): return self.skills.goto(target)
 
     def push(self, target): return self.skills.push(target)
 
-    def status(self):
-        return {
-            "motion": self.motion.status(),
+    def status(self, force=False):
+        now = time.time()
+        if not force and self._status_cache and now - self._status_at <= self._status_ttl:
+            return self._status_cache
+        motion = self.motion.status()
+        safety = safety_status()
+        self._status_cache = {
+            "motion": motion,
             "camera": self.camera.status(),
             "perception": self.perception.status(),
             "memory": {"inventory": self.memory.inventory()},
-            "safety": safety_status(),
-            "layers": self.skills.status(),
+            "safety": safety,
+            "layers": {
+                "level3": {"mode": "pc-perception", "source": self.perception.receiver.last_packet.get("source", "none")},
+                "level2": self.skills.status()["layer2"],
+                "level1": motion,
+                "level0": safety,
+            },
             "control": self.control,
         }
+        self._status_at = now
+        return self._status_cache
 
 robot = RobotAPI()

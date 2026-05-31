@@ -6,7 +6,7 @@ last_veto = ""
 
 def enforce(robot) -> bool:
     global last_veto
-    status = edge_safety.check(robot.camera.frame)
+    status = edge_safety.check(robot.camera.frame, getattr(robot.camera, "gray", None))
     if robot.direction == "forward" and robot.speed > 0 and status.get("danger"):
         robot.stop()
         last_veto = status.get("reason", "edge danger")
