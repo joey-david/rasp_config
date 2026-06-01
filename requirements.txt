@@ -3,6 +3,7 @@ PyYAML>=6.0
 lgpio>=0.2.2.0
 numpy>=1.26
 opencv-python-headless>=4.9
+evdev>=1.4.0
 
 # for the app server
 fastapi>=0.115

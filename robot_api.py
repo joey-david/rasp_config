@@ -74,13 +74,16 @@ class RobotAPI:
     def drive_status(self, stale=False):
         self._status_at = 0.0
         return {
-            "motion": self.motion.brief_status(),
+            "motion": self.motion.status(),
             "control": self.control,
             "safety": safety_status(),
             "stale": stale,
         }
 
     def resolve_object(self, query, prefer_visible=True):
+        from mischief_common.filters import is_environmental
+        if is_environmental(query):
+            return None
         return self.perception.best(query) or self.memory.resolve(query, [], prefer_visible)
 
     def goto(self, target): return self.skills.goto(target)
@@ -99,6 +102,7 @@ class RobotAPI:
             "perception": self.perception.status(),
             "memory": {"inventory": self.memory.inventory()},
             "safety": safety,
+            "turbo": _turbo,
             "layers": {
                 "level3": {"mode": "pc-perception", "source": self.perception.receiver.last_packet.get("source", "none")},
                 "level2": self.skills.status()["layer2"],
@@ -110,4 +114,30 @@ class RobotAPI:
         self._status_at = now
         return self._status_cache
 
-robot = RobotAPI()
+
+_turbo = False
+
+
+def turbo(on: bool) -> dict:
+    """Performance mode: 30fps camera, no perception, pure WASD driving."""
+    global _turbo
+    if on == _turbo:
+        return {"turbo": _turbo, "changed": False}
+    _turbo = on
+    if on:
+        robot.camera.apply_settings(fps=30)
+        robot.perception.stop()
+    else:
+        robot.camera.apply_settings(fps=15)
+        robot.perception.start()
+    return {"turbo": _turbo, "changed": True}
+
+try:
+    robot = RobotAPI()
+except Exception as e:
+    import sys
+    if "GPIO busy" in str(e) or "busy" in str(e).lower():
+        print("GPIO busy — service already running. Stop it first:", file=sys.stderr)
+        print("  sudo systemctl stop mischief-bot.service", file=sys.stderr)
+        sys.exit(1)
+    raise

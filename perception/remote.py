@@ -62,11 +62,15 @@ class RemotePerception:
                 time.sleep(period - elapsed)
 
     def ingest(self, payload):
+        from mischief_common.filters import is_environmental
+
         packet, detections = self.receiver.ingest(payload)
         self.error = ""
         tracks = self.tracker.ingest({**packet, "detections": detections})
         if self.memory:
-            self.memory.update([t for t in tracks if t.get("quality", 0) > 0.4])
+            self.memory.update([t for t in tracks
+                               if t.get("quality", 0) > 0.4
+                               and not is_environmental(t.get("label", ""))])
         return self.status()
 
     def is_fresh(self):

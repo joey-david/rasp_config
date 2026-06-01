@@ -68,13 +68,23 @@ class BoxTracker:
                 box = clamp_box(d.get("box"))
                 if not label or not box:
                     continue
-                tid = self._match(label, box) or self._new_id()
+                tid = self._match(label, box)
+                is_refresh = tid is not None
+                if not is_refresh:
+                    tid = self._new_id()
                 points = self._points(anchor["gray"], box)
+                score = float(d.get("score", 1.0))
+                # Blend: refreshed tracks keep some history; new tracks start from score
+                if is_refresh:
+                    old_q = max(0.15, self.active[tid].get("quality", 0.2))
+                    init_q = 0.5 * score + 0.3 * old_q + 0.2 * (1.0 if points is not None else 0.0)
+                else:
+                    init_q = 0.6 * score + 0.4 * (1.0 if points is not None else 0.0)
                 track = {
                     "id": tid,
                     "track_id": tid,
                     "label": label,
-                    "score": float(d.get("score", 1.0)),
+                    "score": score,
                     "box": box,
                     "points": points,
                     "initial_points": max(1, len(points) if points is not None else 0),
@@ -85,10 +95,11 @@ class BoxTracker:
                     "tracked_at": anchor["t"],
                     "raw_id": d.get("id") or f"{payload.get('frame_id', 'frame')}:{i}",
                     "model": payload.get("model", d.get("model")),
-                    "quality": 0.2 if points is None else 1.0,
+                    "quality": round(init_q, 3),
                 }
                 self.active[tid] = track
                 self._replay(track, anchor)
+            self._merge_same_label()
             self._prune()
         return self.tracks()
 
@@ -119,7 +130,10 @@ class BoxTracker:
         return sorted(out, key=lambda x: (x["label"], -x["quality"]))
 
     def best(self, query):
-        matches = [(label_score(query, t), t) for t in self.tracks()]
+        from mischief_common.filters import is_environmental
+
+        matches = [(label_score(query, t), t) for t in self.tracks()
+                   if not is_environmental(t.get("label", ""))]
         matches = [(s, t) for s, t in matches if s > 0.45]
         return max(matches, key=lambda x: (x[0], x[1]["quality"], x[1].get("score", 0)))[1] if matches else None
 
@@ -187,3 +201,29 @@ class BoxTracker:
         for tid, track in list(self.active.items()):
             if now - float(track.get("tracked_at") or 0) > self.max_age:
                 del self.active[tid]
+
+    def _merge_same_label(self):
+        """Merge same-label tracks with high overlap — keep higher quality."""
+        from itertools import combinations
+
+        pairs = [(a, b) for a, b in combinations(self.active.items(), 2)
+                 if a[1]["label"].lower() == b[1]["label"].lower()
+                 and iou(a[1]["box"], b[1]["box"]) > 0.5]
+        for (aid, a), (bid, b) in pairs:
+            if bid not in self.active or aid not in self.active:
+                continue
+            # Merge lower-quality into higher-quality
+            if a["quality"] >= b["quality"]:
+                keeper, dropper = a, bid
+            else:
+                keeper, dropper = b, aid
+            # Expand keeper box to cover both, average quality
+            kb = keeper["box"]
+            db = self.active[dropper]["box"]
+            keeper["box"] = [
+                min(kb[0], db[0]), min(kb[1], db[1]),
+                max(kb[2], db[2]), max(kb[3], db[3]),
+            ]
+            keeper["quality"] = round(
+                (keeper["quality"] + self.active[dropper]["quality"]) / 2, 3)
+            del self.active[dropper]

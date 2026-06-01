@@ -15,7 +15,8 @@ Environment=MOTOR_POWER=70
 Environment=MOTOR_PWM_FREQ=1000
 Environment=MOTOR_RAMP_SECONDS=0.05
 Environment=TRACKER_HZ=10
-ExecStart=/usr/bin/python3 /home/joey/web_interface.py
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -u /home/joey/web_interface.py
 Restart=on-failure
 RestartSec=3
 

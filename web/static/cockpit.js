@@ -43,6 +43,7 @@ function applyState(s){
   $("map").textContent=map.map(x=>`${x.label} ${x.bearing_deg}°/${x.distance_proxy}`).slice(0,6).join(", ")||"empty";
   $("memory").textContent=[...new Set(mem.map(x=>x.label))].slice(0,8).join(", ")||"empty";
   const err=[s.camera.error,p.error].filter(Boolean).join("\n");$("err").textContent=err;$("err").classList.toggle("hide",!err);
+  const btn=$("turboBtn");if(btn)btn.classList.toggle("on",!!s.turbo);
   paintHud(s);drawOverlay(s);
 }
 
@@ -50,6 +51,13 @@ function applyDriveState(s){
   if(!s.motion)return;
   $("left").textContent=s.motion.left+"%";$("right").textContent=s.motion.right+"%";
   if(s.control)paintHud(s);
+}
+
+let turboOn=false;
+async function turboToggle(){
+  turboOn=!turboOn;
+  const btn=$("turboBtn");btn.textContent=turboOn?"⚡30fps":"⚡";btn.classList.toggle("on",turboOn);
+  const r=await post("/turbo",{on:turboOn});turboOn=r.turbo;
 }
 
 async function toggleRecord(){

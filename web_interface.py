@@ -8,7 +8,9 @@ import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-from robot_api import robot
+from robot_api import robot, turbo
+from skills.examples.follow_person import follow_person, stop_skill, is_running
+import threading
 
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 
@@ -49,13 +51,32 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/perception/detections": return self.send(200, robot.ingest_detections(b))
         if p == "/skill/goto": return self.send(200, robot.goto(b.get("target", "")))
         if p == "/skill/push": return self.send(200, robot.push(b.get("target", "")))
+        if p == "/skill/follow-person":
+            if is_running():
+                return self.send(409, {"ok": False, "error": "skill already running"})
+            t = threading.Thread(
+                target=follow_person, daemon=True,
+                kwargs={"robot": robot,
+                        "actuate": b.get("actuate", False),
+                        "cycles": b.get("cycles", 0)})
+            t.start()
+            return self.send(200, {"ok": True, "skill": "follow-person",
+                                   "actuate": b.get("actuate", False)})
+        if p == "/skill/stop":
+            stop_skill()
+            return self.send(200, {"ok": True, "stopped": True})
+        if p == "/turbo":
+            return self.send(200, turbo(b.get("on", True)))
         self.send_error(404)
 
     def do_GET(self):
         p = urlparse(self.path).path
         if p == "/": return self.send_static("index.html", "text/html; charset=utf-8")
         if p.startswith("/static/"): return self.send_static(p.removeprefix("/static/"))
-        if p == "/api/state": return self.send(200, robot.status())
+        if p == "/api/state":
+            status = robot.status()
+            status["skill_runner"] = {"running": is_running()}
+            return self.send(200, status)
         if p == "/api/detections": return self.send(200, robot.perception.status())
         if p == "/api/memory": return self.send(200, robot.memory.inventory())
         if p == "/snapshot.jpg":
