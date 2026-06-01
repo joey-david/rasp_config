@@ -5,6 +5,10 @@ import time
 SEARCH_SECONDS = 10.0
 
 
+def is_pi_track(obj):
+    return str(obj.get("source", "")).startswith("pi-")
+
+
 @dataclass(frozen=True)
 class ServoDecision:
     phase: str
@@ -28,7 +32,7 @@ class ObjectSkills:
         end = time.time() + timeout
         self.current = {"skill": "find", "phase": "resolve", "target": target}
         best = self.robot.resolve_object(target, prefer_visible=True)
-        if best and best.get("source") == "pi-tracker" and best.get("quality", 0) >= 0.4:
+        if best and is_pi_track(best) and best.get("quality", 0) >= 0.4:
             self.current["phase"] = "found"
             return best
         if best and not allow_motion:
@@ -43,7 +47,7 @@ class ObjectSkills:
             if allow_motion:
                 self.robot.set_velocity(0, 18)
             obj = self.robot.resolve_object(target, prefer_visible=True)
-            if obj and obj.get("source") == "pi-tracker" and obj.get("quality", 0) >= 0.4:
+            if obj and is_pi_track(obj) and obj.get("quality", 0) >= 0.4:
                 self.robot.stop()
                 self.current["phase"] = "found"
                 return obj
@@ -82,7 +86,7 @@ class ObjectSkills:
         error = cx - 0.5
         close = obj.get("distance_proxy", 99) < (2.4 if contact else 3.0)
         age, quality = float(obj.get("age", 99)), float(obj.get("quality", 0))
-        if obj.get("source") != "pi-tracker":
+        if not is_pi_track(obj):
             return ServoDecision("searching", 0, round(error * 25, 1), "memory-only")
         if age > 0.8 or quality < 0.25:
             return ServoDecision("reacquire", 0, round(error * 25, 1), "stale-track")

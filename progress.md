@@ -38,3 +38,10 @@ The prototype to the prototype runs, using tape and unstable elts. Uneven wheels
 ### May 30th
 
 Diagnosed: bad motor with exagerated friction. Delayed parts delivery. Starting the software engineering, started the video project. Created level 0 especially - tank, pwm management, web interface redoing, etc. Rethought split of compute: only level 0 will run on pi, advanced visual detection will be on laptop. 
+
+
+## June 1st.
+
+Implemented motors and motion from scratch, with smart release of gpio for concurrent exec and web watching, etc.
+Started implementing lock-on - need to do a bunch of optimisations with the 3hz-30hz system, as the pi saturates and can't keep up : only keep track of important objects (in this case person), downsize image from the get-go, etc.
+Switched to kalman filter, sort algorithm for bbox retention, PD for speed tracking and avoiding oscillations.

@@ -6,6 +6,12 @@ import os
 from .receiver import DetectionReceiver
 from .tracker import BoxTracker
 
+TRACKER_LABELS = {
+    x.strip().lower()
+    for x in os.getenv("TRACKER_LABELS", "person").split(",")
+    if x.strip()
+}
+
 
 class RemotePerception:
     def __init__(self, memory=None, camera=None, motion=None, fresh_seconds=1.0, stale_seconds=10.0):
@@ -14,6 +20,7 @@ class RemotePerception:
         self.motion = motion
         self.receiver = DetectionReceiver()
         self.tracker = BoxTracker()
+        self.tracked_received_at = 0.0
         self.tracker_hz = float(os.getenv("TRACKER_HZ", "10"))
         self.fresh_seconds = fresh_seconds
         self.stale_seconds = stale_seconds
@@ -42,7 +49,7 @@ class RemotePerception:
         while not self._stop.is_set():
             t0 = time.time()
             try:
-                recent = self.receiver.received_at and time.time() - self.receiver.received_at < 3.0
+                recent = self.tracked_received_at and time.time() - self.tracked_received_at < 3.0
                 if not recent and not self.tracker.has_active():
                     time.sleep(0.25)
                     continue
@@ -66,7 +73,14 @@ class RemotePerception:
 
         packet, detections = self.receiver.ingest(payload)
         self.error = ""
-        tracks = self.tracker.ingest({**packet, "detections": detections})
+        trackable = [
+            d for d in detections
+            if d.get("label", "").lower().strip() in TRACKER_LABELS
+            and not is_environmental(d.get("label", ""))
+        ]
+        if trackable:
+            self.tracked_received_at = time.time()
+        tracks = self.tracker.ingest({**packet, "detections": trackable})
         if self.memory:
             self.memory.update([t for t in tracks
                                if t.get("quality", 0) > 0.4
@@ -78,6 +92,9 @@ class RemotePerception:
 
     def best(self, query):
         return self.tracker.best(query)
+
+    def track(self, track_id):
+        return self.tracker.track(track_id)
 
     def status(self):
         now = time.time()
@@ -97,4 +114,5 @@ class RemotePerception:
             "source": self.receiver.last_packet.get("source", "pc"),
             "model": self.receiver.last_packet.get("model"),
             "tracker": {k: v for k, v in tracker.items() if k != "tracks"},
+            "tracker_labels": sorted(TRACKER_LABELS),
         }

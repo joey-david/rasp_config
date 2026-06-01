@@ -12,7 +12,7 @@ WIDTH = int(os.getenv("CAMERA_WIDTH", 1296))
 HEIGHT = int(os.getenv("CAMERA_HEIGHT", 972))
 FPS = int(os.getenv("CAMERA_FPS", 30))
 MODE = os.getenv("CAMERA_MODE", "").strip()
-GRAY_SIZE = (320, 240)
+GRAY_SIZE = (int(os.getenv("CAMERA_GRAY_WIDTH", WIDTH)), int(os.getenv("CAMERA_GRAY_HEIGHT", HEIGHT)))
 
 
 def clamp(v, lo, hi, default):

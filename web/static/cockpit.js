@@ -1,5 +1,5 @@
 const down=new Set(), valid=["w","a","s","d"], CONTROL_MS=20, $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d");
-let recording=false, lastState={};
+let recording=false, visionOn=true, lockOn=false, lastState={};
 let driveSeq=0;
 
 function keys(){return valid.filter(k=>down.has(k)).join("")}
@@ -33,6 +33,13 @@ function paintHud(s){
   for(const k of valid)$("h"+k).classList.toggle("on",ks.has(k)||down.has(k));
 }
 
+function paintSkillState(s){
+  const lock=s.skill_runner?.lock_on||{};
+  lockOn=!!lock.running;
+  const b=$("lockBtn");
+  if(b){b.textContent=lockOn?"Stop Lock":"Lock Person";b.classList.toggle("on",lockOn)}
+}
+
 function applyState(s){
   if(!s.motion)return;
   $("left").textContent=s.motion.left+"%";$("right").textContent=s.motion.right+"%";
@@ -45,7 +52,7 @@ function applyState(s){
   $("memory").textContent=[...new Set(mem.map(x=>x.label))].slice(0,8).join(", ")||"empty";
   const err=[s.camera.error,p.error].filter(Boolean).join("\n");$("err").textContent=err;$("err").classList.toggle("hide",!err);
   const btn=$("turboBtn");if(btn)btn.classList.toggle("on",!!s.turbo);
-  paintHud(s);drawOverlay(s);
+  paintHud(s);paintSkillState(s);drawOverlay(s);
 }
 
 function applyDriveState(s){
@@ -66,6 +73,19 @@ async function toggleRecord(){
     const r=await fetch(recording?"/record/stop":"/record/start",{method:"POST"}),j=await r.json();
     recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording);
   }catch(e){$("err").textContent="Recorder error: "+e;$("err").classList.remove("hide")}
+}
+
+async function toggleVision(){
+  visionOn=!visionOn;
+  const r=await post(visionOn?"/vision/start":"/vision/stop",{});
+  visionOn=!!r.enabled;
+  const b=$("visionBtn");if(b){b.textContent=visionOn?"Vision On":"Vision Off";b.classList.toggle("on",visionOn)}
+}
+
+async function toggleLockPerson(){
+  const r=await post(lockOn?"/skill/stop":"/skill/lock-person",{target:"person"});
+  lockOn=!lockOn && r.ok!==false;
+  const b=$("lockBtn");if(b){b.textContent=lockOn?"Stop Lock":"Lock Person";b.classList.toggle("on",lockOn)}
 }
 
 let driveInFlight=false, driveDirty=false, driveAbort=null, lastDriveAt=0;
@@ -101,5 +121,6 @@ $("showDetections").addEventListener("input",()=>fetch("/api/state").then(r=>r.j
 setInterval(()=>{if(down.size)sendDrive()},CONTROL_MS);
 setInterval(()=>fetch("/api/state").then(r=>r.json()).then(applyState),350);
 fetch("/record/status").then(r=>r.json()).then(j=>{recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording)}).catch(()=>{});
+fetch("/vision/status").then(r=>r.json()).then(j=>{visionOn=!!j.enabled;$("visionBtn").textContent=visionOn?"Vision On":"Vision Off";$("visionBtn").classList.toggle("on",visionOn)}).catch(()=>{});
 fetch("/api/state").then(r=>r.json()).then(applyState);
 document.querySelector("main").focus();paintKeys();
