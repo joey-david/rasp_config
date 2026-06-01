@@ -1,4 +1,5 @@
 <!doctype html>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Robot Driver</title>
 <link rel="stylesheet" href="/static/style.css">
@@ -40,8 +41,8 @@
   <button id="record" data-action="record" onclick="toggleRecord()">Record</button>
   <button class="danger" onclick="stopNow()">Stop</button>
   <button onclick="document.documentElement.requestFullscreen?.()">Full</button>
-  <button onclick="turboToggle()" id="turboBtn">⚡</button>
-  <button class="icon" data-action="settings" aria-label="Camera settings" onclick="$('drawer').classList.toggle('open')">☰</button>
+  <button onclick="turboToggle()" id="turboBtn">Turbo</button>
+  <button class="icon" data-action="settings" aria-label="Camera settings" onclick="$('drawer').classList.toggle('open')">Menu</button>
   <div id="err" class="err hide"></div>
 </main>
 

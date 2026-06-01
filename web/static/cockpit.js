@@ -1,11 +1,9 @@
-const down=new Set(), valid=["w","a","s","d"], CONTROL_MS=20, $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d"), recorder="http://127.0.0.1:8765";
+const down=new Set(), valid=["w","a","s","d"], CONTROL_MS=20, $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d");
 let recording=false, lastState={};
+let driveSeq=0;
 
 function keys(){return valid.filter(k=>down.has(k)).join("")}
-function velocityFromKeys(){
-  const p=+power.value, y=(down.has("w")?1:0)-(down.has("s")?1:0), x=(down.has("d")?1:0)-(down.has("a")?1:0);
-  return {linear:y*p, angular:x*p};
-}
+function drivePayload(){return {keys:keys(), power:+power.value, seq:++driveSeq}}
 function paintKeys(){for(const k of valid){$("h"+k).classList.toggle("on",down.has(k))}$("powerOut").textContent=power.value+"%"}
 async function post(path,data,signal){const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data),signal});return r.json().catch(()=>({}))}
 function frameSize(s){const [w,h]=(s.camera?.size||"1296x972").split("x").map(Number);return [w||1296,h||972]}
@@ -37,7 +35,6 @@ function paintHud(s){
 
 function applyState(s){
   if(!s.motion)return;
-  if(!down.size && s.motion.power!=null){power.value=s.motion.power;$("powerOut").textContent=s.motion.power+"%"}
   $("left").textContent=s.motion.left+"%";$("right").textContent=s.motion.right+"%";
   const c=s.camera.settings,p=s.perception||{};
   $("crop").value=c.crop;$("hflip").checked=!!c.hflip;$("vflip").checked=!!c.vflip;$("cropOut").textContent=c.crop+"%";
@@ -60,19 +57,19 @@ function applyDriveState(s){
 let turboOn=false;
 async function turboToggle(){
   turboOn=!turboOn;
-  const btn=$("turboBtn");btn.textContent=turboOn?"⚡30fps":"⚡";btn.classList.toggle("on",turboOn);
+  const btn=$("turboBtn");btn.textContent=turboOn?"30fps":"Turbo";btn.classList.toggle("on",turboOn);
   const r=await post("/turbo",{on:turboOn});turboOn=r.turbo;
 }
 
 async function toggleRecord(){
   try{
-    const r=await fetch(recorder+(recording?"/stop":"/start"),{method:"POST"}),j=await r.json();
+    const r=await fetch(recording?"/record/stop":"/record/start",{method:"POST"}),j=await r.json();
     recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording);
-  }catch(e){$("err").textContent="Recorder offline: run bin/record-server";$("err").classList.remove("hide")}
+  }catch(e){$("err").textContent="Recorder error: "+e;$("err").classList.remove("hide")}
 }
 
 let driveInFlight=false, driveDirty=false, driveAbort=null, lastDriveAt=0;
-async function sendMotion(force=false){
+async function sendDrive(force=false){
   paintKeys();
   if(driveInFlight){
     driveDirty=true;
@@ -82,11 +79,11 @@ async function sendMotion(force=false){
   const wait=Math.max(0,CONTROL_MS-(performance.now()-lastDriveAt));
   if(wait && !force)await new Promise(r=>setTimeout(r,wait));
   driveInFlight=true;driveDirty=false;driveAbort=new AbortController();lastDriveAt=performance.now();
-  try{applyDriveState(await post("/motion/set_velocity",velocityFromKeys(),driveAbort.signal))}
+  try{applyDriveState(await post("/drive",drivePayload(),driveAbort.signal))}
   catch(e){if(e.name!=="AbortError"){driveDirty=true}}
   finally{
     driveInFlight=false;driveAbort=null;
-    if(driveDirty)sendMotion();
+    if(driveDirty)sendDrive();
   }
 }
 async function stopNow(){down.clear();paintKeys();await post("/motion/stop",{})}
@@ -95,14 +92,14 @@ async function settings(){
   $("cropOut").textContent=data.crop+"%";applyState(await post("/camera/settings",data));
 }
 
-window.addEventListener("keydown",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();if(!down.has(k)){down.add(k);sendMotion()}}});
-window.addEventListener("keyup",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();down.delete(k);sendMotion()}});
+window.addEventListener("keydown",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();if(!down.has(k)){down.add(k);sendDrive()}}});
+window.addEventListener("keyup",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();down.delete(k);sendDrive()}});
 window.addEventListener("blur",stopNow);
-power.addEventListener("input",sendMotion);
+power.addEventListener("input",sendDrive);
 for(const id of ["crop","hflip","vflip"])$(id).addEventListener("input",settings);
 $("showDetections").addEventListener("input",()=>fetch("/api/state").then(r=>r.json()).then(applyState));
-setInterval(()=>{if(down.size)sendMotion()},CONTROL_MS);
+setInterval(()=>{if(down.size)sendDrive()},CONTROL_MS);
 setInterval(()=>fetch("/api/state").then(r=>r.json()).then(applyState),350);
-fetch(recorder+"/status").then(r=>r.json()).then(j=>{recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording)}).catch(()=>{});
+fetch("/record/status").then(r=>r.json()).then(j=>{recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording)}).catch(()=>{});
 fetch("/api/state").then(r=>r.json()).then(applyState);
 document.querySelector("main").focus();paintKeys();

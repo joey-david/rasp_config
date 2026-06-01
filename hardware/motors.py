@@ -38,6 +38,12 @@ class Motors:
         """Low-level motor control using lgpio and a TB6612FNG driver."""
         self.cfg = mapping or load_mapping()
         self.last = (None, None)
+        self.handle = None
+        self._open()
+
+    def _open(self):
+        if self.handle is not None:
+            return
         # open a handle to the first gpiochip (0) 
         self.handle = lgpio.gpiochip_open(0)
         pins = [self.cfg["standby"]]
@@ -78,6 +84,10 @@ class Motors:
         """
         
         left, right = round(self._clamp(left), 1), round(self._clamp(right), 1)
+        if self.handle is None and left == 0 and right == 0:
+            self.last = (0, 0)
+            return
+        self._open()
         if (left, right) == self.last:
             return
         # set standby high if either motor is moving, low if both are stopped
@@ -88,7 +98,9 @@ class Motors:
 
     def stop(self):
         """Stop both motors immediately."""
-        self.drive(0, 0)
+        if self.handle is not None:
+            self.drive(0, 0)
+        self.last = (0, 0)
 
     def close(self):
         """Stop motors and release GPIO pins."""
@@ -99,4 +111,4 @@ class Motors:
 
     def status(self) -> dict:
         """Return current motor status for debugging."""
-        return {"backend": "lgpio", "mapping": self.cfg, "last": self.last}
+        return {"backend": "lgpio", "mapping": self.cfg, "last": self.last, "claimed": self.handle is not None}

@@ -148,6 +148,10 @@ class Camera:
                 self._cv.wait(max(.1, end - time.time()))
             return self.frame
 
+    def latest(self):
+        with self._cv:
+            return self.frame, self.frame_at, self.frame_id
+
     def gray_snapshot(self, timeout=5):
         end = time.time() + timeout
         while time.time() < end:

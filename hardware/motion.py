@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - direct script execution
     from motors import Motors
 
 WATCHDOG_SECONDS = float(os.environ.get("MOTOR_WATCHDOG_SECONDS", "1.0"))
+RELEASE_IDLE_SECONDS = float(os.environ.get("MOTOR_RELEASE_IDLE_SECONDS", "5.0"))
 
 
 def clamp(v: float, lo: float = -100.0, hi: float = 100.0) -> float:
@@ -46,6 +47,7 @@ class Motion:
         self._last_cmd = time.time()
         self._last_log = 0
         self._watchdog_alive = 0.0
+        self._idle_since = time.time()
         self._lock = threading.RLock()
         self._stop = threading.Event()
         threading.Thread(target=self._watchdog, daemon=True).start()
@@ -54,7 +56,7 @@ class Motion:
         self.left = round(clamp(left), 1)
         self.right = round(clamp(right), 1)
         self.linear = (self.left + self.right) / 2
-        self.angular = (self.right - self.left) / 2
+        self.angular = (self.left - self.right) / 2
         self.speed = round(abs(self.linear), 1)
         self.direction = (
             "forward" if self.linear > 0
@@ -67,6 +69,7 @@ class Motion:
             else "left" if self.angular < 0
             else "not"
         )
+        self._idle_since = None if (self.left or self.right) else self._idle_since or time.time()
 
     def tank(self, left: float, right: float) -> dict:
         """Drive the left and right motors immediately.
@@ -83,12 +86,13 @@ class Motion:
 
         with self._lock:
             self._last_cmd = time.time()
-            try:
-                self.backend.drive(left, right)
-            except Exception as e:
-                print(f"[motion] drive error: {e}", flush=True)
-                self.backend.last = (None, None)  # force backend retry next time
-                raise
+            if left or right or self.left or self.right:
+                try:
+                    self.backend.drive(left, right)
+                except Exception as e:
+                    print(f"[motion] drive error: {e}", flush=True)
+                    self.backend.last = (None, None)  # force backend retry next time
+                    raise
             self._remember(left, right)
         return self.status()
 
@@ -100,7 +104,7 @@ class Motion:
             angular: Turn command from -100.0 to 100.0.
                 Positive turns right, negative turns left.
         """
-        return self.tank(linear - angular, linear + angular)
+        return self.tank(linear + angular, linear - angular)
 
     def stop(self) -> dict:
         """Stop both motors immediately."""
@@ -109,8 +113,17 @@ class Motion:
     def close(self) -> None:
         """Stop watchdog and release the motor backend."""
         self._stop.set()
-        self.stop()
-        self.backend.close()
+        with self._lock:
+            if self.left or self.right:
+                self.backend.drive(0, 0)
+            self._remember(0, 0)
+            self.backend.close()
+
+    def release(self) -> None:
+        """Release GPIO after the motors are already stopped."""
+        with self._lock:
+            if not (self.left or self.right):
+                self.backend.close()
 
     def _watchdog(self) -> None:
         """Stop the robot if no fresh command arrives within the timeout."""
@@ -121,6 +134,14 @@ class Motion:
             with self._lock:
                 stale = self._last_cmd and time.time() - self._last_cmd > WATCHDOG_SECONDS
                 moving = self.left or self.right
+                idle_release = (
+                    RELEASE_IDLE_SECONDS > 0
+                    and self._idle_since
+                    and time.time() - self._idle_since > RELEASE_IDLE_SECONDS
+                )
+                if idle_release:
+                    self.backend.close()
+                    self._idle_since = time.time()
                 if not stale or not moving:
                     continue
 
@@ -129,6 +150,7 @@ class Motion:
     def status(self) -> dict:
         """Return detailed motion and backend state."""
         with self._lock:
+            backend = self.backend.status()
             return {
                 "left": self.left,
                 "right": self.right,
@@ -138,8 +160,9 @@ class Motion:
                 "direction": self.direction,
                 "turning": self.turning,
                 "power": self.power,
+                "released": not backend.get("claimed", True),
                 "watchdog_alive": round(time.time() - self._watchdog_alive, 2) if self._watchdog_alive else None,
-                "backend": self.backend.status(),
+                "backend": backend,
             }
 
 

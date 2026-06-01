@@ -9,7 +9,7 @@ body{margin:0;background:#050505;color:#f7f7fb;font-family:system-ui,sans-serif;
 .stat{min-width:52px}.label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#c5c7d0}.value{font-weight:850;font-size:13px}
 .pill{font-size:12px;color:#e3e5ee;max-width:290px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 button{border:0;border-radius:14px;height:34px;padding:0 13px;font-weight:850;background:#f7f7fb;color:#080a0d}
-.icon{width:36px;padding:0;font-size:19px}.danger{background:#fb7185;color:#1b0205}.recording{background:#f43f5e;color:white}
+.icon{min-width:56px;padding:0 10px}.danger{background:#fb7185;color:#1b0205}.recording{background:#f43f5e;color:white}
 input{accent-color:white}input[type=range]{width:180px}
 
 .key{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#ffffff18;color:#b8bac4;font-size:12px;font-weight:850}

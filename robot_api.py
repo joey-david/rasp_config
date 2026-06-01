@@ -1,5 +1,6 @@
 """Central robot facade. Web, skills, and reasoning call this, not hardware directly."""
 import time
+import math
 
 from hardware.motion import Motion
 from hardware.safety.safety import enforce as enforce_safety, status as safety_status
@@ -8,6 +9,7 @@ from perception.remote import RemotePerception
 from memory.object_memory import ObjectMemory
 from skills.objects import ObjectSkills
 
+TURNING_SPEED_BUILDUP = 2
 
 class RobotAPI:
     def __init__(self):
@@ -21,7 +23,8 @@ class RobotAPI:
         self._status_at = 0.0
         self._status_ttl = 0.1
         self._last_motion_seq = -1
-
+        self.key_turn_target = 0
+        
     @property
     def direction(self): return self.motion.direction
 
@@ -52,18 +55,58 @@ class RobotAPI:
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
         self.control = {"mode": "idle", "keys": "", "source": source}
+        self.key_turn_target = 0
         self._status_at = 0.0
         return self.motion.stop()
 
+
+    # see video/script/curve_turn_tweak.png for new logic
     def drive_keys(self, keys, power=None, seq=None):
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
+
         clean = "".join(c for c in str(keys).lower() if c in "wasd")
         self.control = {"mode": "manual" if clean else "idle", "keys": clean, "source": "web"}
+
         p = max(0, min(100, int(power if power is not None else self.motion.power)))
         y = int("w" in clean) - int("s" in clean)
-        x = int("d" in clean) - int("a" in clean)
-        self.motion.set_velocity(y * p, x * p); enforce_safety(self); return self.drive_status()
+
+        turn_log = 0.3  # 0 = linear, 1 = full turn immediately
+        turn_log = max(0.0, min(1.0, turn_log))
+
+        step = TURNING_SPEED_BUILDUP * (2 if y == 0 else 1)
+
+        if "d" in clean:
+            if self.key_turn_target >= 0:
+                self.key_turn_target = min(100, self.key_turn_target + step)
+            else:
+                self.key_turn_target = step
+
+        elif "a" in clean:
+            if self.key_turn_target <= 0:
+                self.key_turn_target = max(-100, self.key_turn_target - step)
+            else:
+                self.key_turn_target = -step
+
+        else:
+            self.key_turn_target = 0
+
+        x = abs(self.key_turn_target) / 100.0
+
+        if x == 0:
+            turn = 0
+        elif turn_log >= 1:
+            turn = 100
+        elif turn_log <= 0:
+            turn = self.key_turn_target
+        else:
+            k = turn_log / (1.0 - turn_log)
+            curved = math.log1p(k * x) / math.log1p(k)
+            turn = math.copysign(curved * 100, self.key_turn_target)
+
+        self.motion.set_velocity(y * p, turn)
+        enforce_safety(self)
+        return self.drive_status()
 
     def drive_tank(self, left, right, seq=None, source="tank"):
         if not self._fresh_motion_seq(seq):

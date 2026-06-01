@@ -81,7 +81,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, status)
         if p == "/api/detections": return self.send(200, robot.perception.status())
         if p == "/api/memory": return self.send(200, robot.memory.inventory())
-        if p in ("/snapshot.jpg", "/frame/latest.jpg"):
+        if p == "/frame/latest.jpg":
+            frame, frame_at, frame_id = robot.camera.latest()
+            headers = {"X-Captured-At": frame_at, "X-Frame-Id": frame_id}
+            return self.send(200, frame, "image/jpeg", headers) if frame else self.send_error(503, "No frame")
+        if p == "/snapshot.jpg":
             frame = robot.snapshot()
             headers = {"X-Captured-At": robot.camera.frame_at, "X-Frame-Id": robot.camera.frame_id}
             return self.send(200, frame, "image/jpeg", headers) if frame else self.send_error(503, "No frame")
