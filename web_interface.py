@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 from robot_api import robot, turbo
+from motion_udp import UDPMotionServer
 from skills.examples.follow_person import follow_person, stop_skill, is_running
 import threading
 
@@ -46,7 +47,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         p, b = urlparse(self.path).path, self.body()
         if p == "/drive": return self.send(200, robot.drive_keys(b.get("keys", ""), b.get("power"), b.get("seq")))
-        if p == "/motion/stop": return self.send(200, robot.stop())
+        if p == "/motion/set_velocity": return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
+        if p == "/motion/stop": return self.send(200, robot.stop(b.get("seq"), "http"))
         if p == "/camera/settings": robot.camera.apply_settings(**b); return self.send(200, robot.status())
         if p == "/api/perception/detections": return self.send(200, robot.ingest_detections(b))
         if p == "/skill/goto": return self.send(200, robot.goto(b.get("target", "")))
@@ -79,9 +81,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, status)
         if p == "/api/detections": return self.send(200, robot.perception.status())
         if p == "/api/memory": return self.send(200, robot.memory.inventory())
-        if p == "/snapshot.jpg":
+        if p in ("/snapshot.jpg", "/frame/latest.jpg"):
             frame = robot.snapshot()
-            return self.send(200, frame, "image/jpeg", {"X-Captured-At": robot.camera.frame_at}) if frame else self.send_error(503, "No frame")
+            headers = {"X-Captured-At": robot.camera.frame_at, "X-Frame-Id": robot.camera.frame_id}
+            return self.send(200, frame, "image/jpeg", headers) if frame else self.send_error(503, "No frame")
         if p == "/stream.mjpg": return self.stream()
         if p == "/health":
             r = subprocess.run(["rpicam-hello", "--list-cameras"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
@@ -104,5 +107,8 @@ def shutdown(*_):
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, shutdown); signal.signal(signal.SIGTERM, shutdown)
     robot.start()
+    udp_motion = UDPMotionServer(robot).start()
     try: RobotServer(("0.0.0.0", 8080), Handler).serve_forever()
-    finally: robot.close()
+    finally:
+        udp_motion.stop()
+        robot.close()

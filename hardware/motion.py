@@ -102,21 +102,6 @@ class Motion:
         """
         return self.tank(linear - angular, linear + angular)
 
-    def drive_keys(self, keys: str, power: int | float | None = None) -> dict:
-        """Map WASD keys directly to a motor command, with no smoothing.
-
-        Combined keys arc-turn by mixing linear and angular commands.
-        """
-        ks = set(str(keys).lower())
-        W, A, S, D = "w" in ks, "a" in ks, "s" in ks, "d" in ks
-        y = int(W) - int(S)
-        x = int(D) - int(A)
-
-        p = max(0, min(100, int(power if power is not None else self.power)))
-        self.power = p
-
-        return self.set_velocity(y * p, x * p)
-
     def stop(self) -> dict:
         """Stop both motors immediately."""
         return self.tank(0, 0)
@@ -159,71 +144,30 @@ class Motion:
 
 
 if __name__ == "__main__":
-    import argparse
-    import time
-    from evdev import InputDevice, ecodes, list_devices
-
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--power", type=int, default=70)
-    ap.add_argument("--hz", type=float, default=30)
-    ap.add_argument("--device", help="evdev keyboard path, e.g. /dev/input/event3")
-    args = ap.parse_args()
-
-    def find_keyboard():
-        devices = [InputDevice(p) for p in list_devices()]
-        for dev in devices:
-            caps = dev.capabilities().get(ecodes.EV_KEY, [])
-            if ecodes.KEY_W in caps and ecodes.KEY_A in caps:
-                return dev
-        raise RuntimeError("No keyboard device found. Try --device /dev/input/eventX")
-
-    dev = InputDevice(args.device) if args.device else find_keyboard()
-    dev.grab()
-
-    keymap = {
-        ecodes.KEY_W: "w",
-        ecodes.KEY_A: "a",
-        ecodes.KEY_S: "s",
-        ecodes.KEY_D: "d",
-    }
-
-    pressed = set()
-    m = Motion(power_cap=args.power)
-
-    print(f"Using {dev.path}: {dev.name}")
-    print("Hold WASD to drive, space to stop, q to quit", flush=True)
-
+    # simple test script to verify motors are working, and demonstrate usage of the Motion API
+    motion = Motion()
     try:
-        while True:
-            for event in dev.read_loop():
-                if event.type != ecodes.EV_KEY:
-                    continue
+        print("Driving forward...")
+        for i in range(10):
+            motion.set_velocity(50, 0)
+            time.sleep(0.1)
 
-                key = event.code
-                is_down = event.value in (1, 2)  # 1=press, 2=hold
-                is_up = event.value == 0
-
-                if key == ecodes.KEY_Q and is_down:
-                    raise KeyboardInterrupt
-
-                if key == ecodes.KEY_SPACE and is_down:
-                    pressed.clear()
-                    m.stop()
-                    continue
-
-                if key in keymap:
-                    if is_down:
-                        pressed.add(keymap[key])
-                    elif is_up:
-                        pressed.discard(keymap[key])
-
-                if pressed:
-                    m.drive_keys("".join(pressed), args.power)
-                else:
-                    m.stop()
-
-                time.sleep(1 / args.hz)
-
+        print("Driving reverse...")
+        for i in range(10):
+            motion.set_velocity(-50, 0)
+            time.sleep(0.1)
+            
+        print("Turning right...")
+        for i in range(10):
+            motion.set_velocity(0, 50)
+            time.sleep(0.1)
+            
+        print("Turning left...")
+        for i in range(10):
+            motion.set_velocity(0, -50)
+            time.sleep(0.1)
+        
+        print("Stopping...")
+        motion.stop()
     finally:
-        dev.ungrab()
-        m.close()
+        motion.close()

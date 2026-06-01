@@ -50,7 +50,7 @@ def jpeg_frames(stream):
 class Camera:
     def __init__(self):
         self.settings = {"fps": clamp(FPS, 1, 30, 30), "hflip": False, "vflip": False, "crop": 0}
-        self.frame, self.frame_at, self.error = None, 0, ""
+        self.frame, self.frame_at, self.frame_id, self.error = None, 0, 0, ""
         self.gray, self.gray_at, self._gray_source_at = None, 0, 0
         self._version = 0
         self._cv = threading.Condition()
@@ -124,7 +124,7 @@ class Camera:
                         break
                     cropped = self.crop(frame)
                     with self._cv:
-                        self.frame, self.frame_at, self.error = cropped, time.time(), ""
+                        self.frame, self.frame_at, self.frame_id, self.error = cropped, time.time(), self.frame_id + 1, ""
                         self._cv.notify_all()
             except Exception as e:
                 with self._cv: self.error = str(e)
@@ -178,6 +178,8 @@ class Camera:
         return {
             "settings": self.settings.copy(),
             "age": None if not self.frame_at else round(time.time() - self.frame_at, 2),
+            "frame_id": self.frame_id,
+            "frame_at": self.frame_at,
             "gray": bool(self.gray_at),
             "error": self.error,
             "size": f"{WIDTH}x{HEIGHT}",

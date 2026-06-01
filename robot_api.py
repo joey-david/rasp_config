@@ -20,7 +20,7 @@ class RobotAPI:
         self._status_cache = {}
         self._status_at = 0.0
         self._status_ttl = 0.1
-        self._last_drive_seq = -1
+        self._last_motion_seq = -1
 
     @property
     def direction(self): return self.motion.direction
@@ -38,30 +38,43 @@ class RobotAPI:
         self.camera.stop()
         self.motion.close()
 
-    def stop(self):
-        self.control = {"mode": "idle", "keys": "", "source": "stop"}
+    def _fresh_motion_seq(self, seq):
+        try:
+            seq = int(seq)
+        except Exception:
+            return True
+        if seq <= self._last_motion_seq:
+            return False
+        self._last_motion_seq = seq
+        return True
+
+    def stop(self, seq=None, source="stop"):
+        if not self._fresh_motion_seq(seq):
+            return self.drive_status(stale=True)
+        self.control = {"mode": "idle", "keys": "", "source": source}
         self._status_at = 0.0
         return self.motion.stop()
 
     def drive_keys(self, keys, power=None, seq=None):
-        try:
-            seq = int(seq)
-        except Exception:
-            seq = None
-        if seq is not None and seq < self._last_drive_seq:
+        if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
-        if seq is not None:
-            self._last_drive_seq = seq
         clean = "".join(c for c in str(keys).lower() if c in "wasd")
         self.control = {"mode": "manual" if clean else "idle", "keys": clean, "source": "web"}
-        self.motion.drive_keys(keys, power); enforce_safety(self); return self.drive_status()
+        p = max(0, min(100, int(power if power is not None else self.motion.power)))
+        y = int("w" in clean) - int("s" in clean)
+        x = int("d" in clean) - int("a" in clean)
+        self.motion.set_velocity(y * p, x * p); enforce_safety(self); return self.drive_status()
 
-    def drive_tank(self, left, right):
-        self.control = {"mode": "manual", "keys": "", "source": "tank"}
+    def drive_tank(self, left, right, seq=None, source="tank"):
+        if not self._fresh_motion_seq(seq):
+            return self.drive_status(stale=True)
+        self.control = {"mode": "manual", "keys": "", "source": source}
         self.motion.tank(left, right); enforce_safety(self); return self.drive_status()
 
-    def set_velocity(self, linear, angular):
-        self.control = {"mode": "auto", "keys": "", "source": "layer2"}
+    def set_velocity(self, linear, angular, seq=None, source="layer2"):
+        if not self._fresh_motion_seq(seq):
+            return self.drive_status(stale=True)
+        self.control = {"mode": "auto", "keys": "", "source": source}
         self._status_at = 0.0
         out = self.motion.set_velocity(linear, angular); enforce_safety(self); return out
 

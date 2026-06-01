@@ -1,7 +1,11 @@
-const down=new Set(), valid=["w","a","s","d"], $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d"), recorder="http://127.0.0.1:8765";
+const down=new Set(), valid=["w","a","s","d"], CONTROL_MS=20, $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d"), recorder="http://127.0.0.1:8765";
 let recording=false, lastState={};
 
 function keys(){return valid.filter(k=>down.has(k)).join("")}
+function velocityFromKeys(){
+  const p=+power.value, y=(down.has("w")?1:0)-(down.has("s")?1:0), x=(down.has("d")?1:0)-(down.has("a")?1:0);
+  return {linear:y*p, angular:x*p};
+}
 function paintKeys(){for(const k of valid){$("h"+k).classList.toggle("on",down.has(k))}$("powerOut").textContent=power.value+"%"}
 async function post(path,data,signal){const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data),signal});return r.json().catch(()=>({}))}
 function frameSize(s){const [w,h]=(s.camera?.size||"1296x972").split("x").map(Number);return [w||1296,h||972]}
@@ -67,38 +71,37 @@ async function toggleRecord(){
   }catch(e){$("err").textContent="Recorder offline: run bin/record-server";$("err").classList.remove("hide")}
 }
 
-let driveInFlight=false, driveDirty=false, driveAbort=null, lastDriveAt=0, driveSeq=0;
-async function drive(force=false){
+let driveInFlight=false, driveDirty=false, driveAbort=null, lastDriveAt=0;
+async function sendMotion(force=false){
   paintKeys();
   if(driveInFlight){
     driveDirty=true;
     if(force && driveAbort)driveAbort.abort();
     else return;
   }
-  const wait=Math.max(0,50-(performance.now()-lastDriveAt));
+  const wait=Math.max(0,CONTROL_MS-(performance.now()-lastDriveAt));
   if(wait && !force)await new Promise(r=>setTimeout(r,wait));
   driveInFlight=true;driveDirty=false;driveAbort=new AbortController();lastDriveAt=performance.now();
-  const seq=++driveSeq;
-  try{applyDriveState(await post("/drive",{keys:keys(),power:+power.value,seq},driveAbort.signal))}
+  try{applyDriveState(await post("/motion/set_velocity",velocityFromKeys(),driveAbort.signal))}
   catch(e){if(e.name!=="AbortError"){driveDirty=true}}
   finally{
     driveInFlight=false;driveAbort=null;
-    if(driveDirty)drive();
+    if(driveDirty)sendMotion();
   }
 }
-async function stopNow(){down.clear();await drive(true)}
+async function stopNow(){down.clear();paintKeys();await post("/motion/stop",{})}
 async function settings(){
   const data={crop:+$("crop").value,hflip:$("hflip").checked,vflip:$("vflip").checked};
   $("cropOut").textContent=data.crop+"%";applyState(await post("/camera/settings",data));
 }
 
-window.addEventListener("keydown",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();if(!down.has(k)){down.add(k);drive()}}});
-window.addEventListener("keyup",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();down.delete(k);drive()}});
+window.addEventListener("keydown",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();if(!down.has(k)){down.add(k);sendMotion()}}});
+window.addEventListener("keyup",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();down.delete(k);sendMotion()}});
 window.addEventListener("blur",stopNow);
-power.addEventListener("input",drive);
+power.addEventListener("input",sendMotion);
 for(const id of ["crop","hflip","vflip"])$(id).addEventListener("input",settings);
 $("showDetections").addEventListener("input",()=>fetch("/api/state").then(r=>r.json()).then(applyState));
-setInterval(()=>{if(down.size)drive()},50);
+setInterval(()=>{if(down.size)sendMotion()},CONTROL_MS);
 setInterval(()=>fetch("/api/state").then(r=>r.json()).then(applyState),350);
 fetch(recorder+"/status").then(r=>r.json()).then(j=>{recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording)}).catch(()=>{});
 fetch("/api/state").then(r=>r.json()).then(applyState);
