@@ -20,9 +20,14 @@ function drawOverlay(s){
   lastState=s;
   cv.width=innerWidth;cv.height=innerHeight;ctx.clearRect(0,0,cv.width,cv.height);
   if(!$("showDetections").checked)return;
-  const p=s.perception||{}, tracks=p.tracks||[], det=p.detections||[], mem=(s.memory?.inventory||[]).filter(x=>x.box).slice(0,12);
+  const lock=s.skill_runner?.lock_on||{};
+  if(lock.running && lock.box){
+    ctx.lineWidth=3;ctx.font="14px system-ui";ctx.textBaseline="top";
+    drawBox(lock,{stroke:"#22c55e",fill:"#052e16dd",text:"#dcfce7",width:3},d=>`lock off ${d.offset??0} turn ${d.turn??0}`);
+    return;
+  }
+  const p=s.perception||{}, tracks=p.tracks||[], det=p.detections||[];
   ctx.lineWidth=3;ctx.font="14px system-ui";ctx.textBaseline="top";
-  for(const m of mem)drawBox(m,{stroke:"#f59e0b88",fill:"#2b1807aa",text:"#fde68a",dash:[5,5],width:1},d=>`${d.label} memory ${d.age??"?"}s`);
   for(const d of det)drawBox(d,{stroke:"#60a5fa",fill:"#07152bdd",text:"#dbeafe",dash:[8,5],width:2},d=>`${d.label} pc ${Math.round((d.score||0)*100)}%`);
   for(const t of tracks)drawBox(t,{stroke:"#22d3ee",fill:"#061a1ddd",text:"#cffafe",width:3},d=>`${d.label} track q${Math.round((d.quality||0)*100)} ${d.age?.toFixed?.(1)??"?"}s`);
 }
@@ -45,11 +50,9 @@ function applyState(s){
   $("left").textContent=s.motion.left+"%";$("right").textContent=s.motion.right+"%";
   const c=s.camera.settings,p=s.perception||{};
   $("crop").value=c.crop;$("hflip").checked=!!c.hflip;$("vflip").checked=!!c.vflip;$("cropOut").textContent=c.crop+"%";
-  const det=p.detections||[],tracks=p.tracks||[],mem=s.memory?.inventory||[],map=p.map||[],age=p.age==null?"no feed":p.age.toFixed(1)+"s",lat=p.latency?.infer_ms;
-  $("vision").textContent=`${p.model||p.backend||"none"} · ${tracks.length} tracks · ${p.fresh?"fresh":"stale"} · ${age}${lat?` · infer ${lat}ms`:""}`;
+  const det=p.detections||[],tracks=p.tracks||[],age=p.age==null?"no feed":p.age.toFixed(1)+"s",lat=p.latency?.infer_ms;
+  $("vision").textContent=`${p.model||p.backend||"none"} · ${p.fresh?"fresh":"stale"} · ${age}${lat?` · infer ${lat}ms`:""}`;
   $("seen").textContent=(tracks.length?tracks:det).map(d=>`${d.label}${d.quality?` q${Math.round(d.quality*100)}%`:d.score?` ${Math.round(d.score*100)}%`:""}`).slice(0,6).join(", ")||"none";
-  $("map").textContent=map.map(x=>`${x.label} ${x.bearing_deg}°/${x.distance_proxy}`).slice(0,6).join(", ")||"empty";
-  $("memory").textContent=[...new Set(mem.map(x=>x.label))].slice(0,8).join(", ")||"empty";
   const err=[s.camera.error,p.error].filter(Boolean).join("\n");$("err").textContent=err;$("err").classList.toggle("hide",!err);
   const btn=$("turboBtn");if(btn)btn.classList.toggle("on",!!s.turbo);
   paintHud(s);paintSkillState(s);drawOverlay(s);

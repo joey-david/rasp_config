@@ -6,7 +6,6 @@ from hardware.motion import Motion
 from hardware.safety.safety import enforce as enforce_safety, status as safety_status
 from perception.camera import Camera
 from perception.remote import RemotePerception
-from memory.object_memory import ObjectMemory
 from skills.objects import ObjectSkills
 
 TURNING_SPEED_BUILDUP = 2
@@ -15,8 +14,7 @@ class RobotAPI:
     def __init__(self):
         self.camera = Camera()
         self.motion = Motion()
-        self.memory = ObjectMemory()
-        self.perception = RemotePerception(self.memory, self.camera, self.motion)
+        self.perception = RemotePerception(None, self.camera, self.motion)
         self.skills = ObjectSkills(self)
         self.control = {"mode": "idle", "keys": "", "source": "none"}
         self._status_cache = {}
@@ -140,7 +138,7 @@ class RobotAPI:
         from mischief_common.filters import is_environmental
         if is_environmental(query):
             return None
-        return self.perception.best(query) or self.memory.resolve(query, [], prefer_visible)
+        return self.perception.best(query)
 
     def goto(self, target): return self.skills.goto(target)
 
@@ -156,7 +154,6 @@ class RobotAPI:
             "motion": motion,
             "camera": self.camera.status(),
             "perception": self.perception.status(),
-            "memory": {"inventory": self.memory.inventory()},
             "safety": safety,
             "turbo": _turbo,
             "layers": {
