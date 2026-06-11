@@ -45,3 +45,8 @@ Diagnosed: bad motor with exagerated friction. Delayed parts delivery. Starting 
 Implemented motors and motion from scratch, with smart release of gpio for concurrent exec and web watching, etc.
 Started implementing lock-on - need to do a bunch of optimisations with the 3hz-30hz system, as the pi saturates and can't keep up : only keep track of important objects (in this case person), downsize image from the get-go, etc.
 Switched to kalman filter, sort algorithm for bbox retention, PD for speed tracking and avoiding oscillations.
+
+
+## June 11th
+
+Getting lock-on in a close-to-reliable state. Need to drastically simplify it, some cumulative offset bonus (with strong decrease when in tolerable center + some occilation counteracting should be enough, maybe even more reliable.)
