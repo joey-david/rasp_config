@@ -1,5 +1,5 @@
 const down=new Set(), valid=["w","a","s","d"], CONTROL_MS=20, $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d");
-let recording=false, visionOn=true, lockOn=false, lastState={};
+let lockOn=false, lastState={};
 let driveSeq=0;
 
 function keys(){return valid.filter(k=>down.has(k)).join("")}
@@ -71,20 +71,6 @@ async function turboToggle(){
   const r=await post("/turbo",{on:turboOn});turboOn=r.turbo;
 }
 
-async function toggleRecord(){
-  try{
-    const r=await fetch(recording?"/record/stop":"/record/start",{method:"POST"}),j=await r.json();
-    recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording);
-  }catch(e){$("err").textContent="Recorder error: "+e;$("err").classList.remove("hide")}
-}
-
-async function toggleVision(){
-  visionOn=!visionOn;
-  const r=await post(visionOn?"/vision/start":"/vision/stop",{});
-  visionOn=!!r.enabled;
-  const b=$("visionBtn");if(b){b.textContent=visionOn?"Vision On":"Vision Off";b.classList.toggle("on",visionOn)}
-}
-
 async function toggleLockPerson(){
   const r=await post(lockOn?"/skill/stop":"/skill/lock-person",{target:"person"});
   lockOn=!lockOn && r.ok!==false;
@@ -123,7 +109,5 @@ for(const id of ["crop","hflip","vflip"])$(id).addEventListener("input",settings
 $("showDetections").addEventListener("input",()=>fetch("/api/state").then(r=>r.json()).then(applyState));
 setInterval(()=>{if(down.size)sendDrive()},CONTROL_MS);
 setInterval(()=>fetch("/api/state").then(r=>r.json()).then(applyState),350);
-fetch("/record/status").then(r=>r.json()).then(j=>{recording=!!j.recording;$("record").textContent=recording?"Stop Rec":"Record";$("record").classList.toggle("recording",recording)}).catch(()=>{});
-fetch("/vision/status").then(r=>r.json()).then(j=>{visionOn=!!j.enabled;$("visionBtn").textContent=visionOn?"Vision On":"Vision Off";$("visionBtn").classList.toggle("on",visionOn)}).catch(()=>{});
 fetch("/api/state").then(r=>r.json()).then(applyState);
 document.querySelector("main").focus();paintKeys();

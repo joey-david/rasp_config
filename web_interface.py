@@ -50,7 +50,6 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/motion/set_velocity": return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
         if p == "/motion/stop": return self.send(200, robot.stop(b.get("seq"), "http"))
         if p == "/camera/settings": robot.camera.apply_settings(**b); return self.send(200, robot.status())
-        if p == "/api/perception/detections": return self.send(200, robot.ingest_detections(b))
         if p == "/skill/goto": return self.send(200, robot.goto(b.get("target", "")))
         if p == "/skill/push": return self.send(200, robot.push(b.get("target", "")))
         if p in ("/skill/lock-on", "/skill/lock-person"):

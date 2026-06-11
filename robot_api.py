@@ -1,4 +1,4 @@
-"""Central robot facade. Web, skills, and reasoning call this, not hardware directly."""
+"""Central robot facade. Web and skills call this, not hardware directly."""
 import time
 import math
 
@@ -14,7 +14,7 @@ class RobotAPI:
     def __init__(self):
         self.camera = Camera()
         self.motion = Motion()
-        self.perception = RemotePerception(None, self.camera, self.motion)
+        self.perception = RemotePerception()
         self.skills = ObjectSkills(self)
         self.control = {"mode": "idle", "keys": "", "source": "none"}
         self._status_cache = {}

@@ -36,7 +36,7 @@ class ObjectSkills:
             self.current["phase"] = "found"
             return best
         if best and not allow_motion:
-            self.current["phase"] = "memory"
+            self.current["phase"] = "visible"
             return best
         if not allow_motion:
             self.current["phase"] = "not-found"
@@ -87,7 +87,7 @@ class ObjectSkills:
         close = obj.get("distance_proxy", 99) < (2.4 if contact else 3.0)
         age, quality = float(obj.get("age", 99)), float(obj.get("quality", 0))
         if not is_pi_track(obj):
-            return ServoDecision("searching", 0, round(error * 25, 1), "memory-only")
+            return ServoDecision("searching", 0, round(error * 25, 1), "not-tracked")
         if age > 0.8 or quality < 0.25:
             return ServoDecision("reacquire", 0, round(error * 25, 1), "stale-track")
         cautious = age > 0.25 or quality < 0.5

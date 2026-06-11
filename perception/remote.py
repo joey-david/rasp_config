@@ -7,8 +7,7 @@ from .receiver import DetectionReceiver
 
 
 class RemotePerception:
-    def __init__(self, memory=None, camera=None, motion=None, fresh_seconds=1.0, stale_seconds=10.0):
-        self.memory = memory
+    def __init__(self, fresh_seconds=1.0, stale_seconds=10.0):
         self.receiver = DetectionReceiver()
         self.fresh_seconds = fresh_seconds
         self.stale_seconds = stale_seconds
@@ -29,13 +28,8 @@ class RemotePerception:
         pass
 
     def ingest(self, payload):
-        from mischief_common.filters import is_environmental
-
         _, detections = self.receiver.ingest(payload)
         self.error = ""
-        useful = [d for d in detections if not is_environmental(d.get("label", ""))]
-        if self.memory:
-            self.memory.update(useful)
         return self.status()
 
     def is_fresh(self):

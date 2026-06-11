@@ -2,11 +2,11 @@
 
 Structural labels are never navigation/interaction targets. Detections with
 these labels still flow through the pipeline (for display, mapping context)
-but are skipped by skills and excluded from memory.
+but are skipped by skills.
 """
 
 # Labels that are structural environment — never actionable targets.
-# Keep the full YOLO-World vocabulary; this only gates skill/memory use.
+# Keep the full detector vocabulary; this only gates skill use.
 ENVIRONMENTAL: set[str] = {
     "wall", "floor", "ceiling", "door", "window",
     "curtain", "blind", "carpet", "rug", "mat",
