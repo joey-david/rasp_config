@@ -7,6 +7,10 @@
 *.mjpeg
 camera-recordings/
 recordings/
+captures/
+video/
+*.pt
+.old_IGNORE/
 .bash_aliases
 .bash_history
 .bash_profile

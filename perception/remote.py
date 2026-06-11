@@ -1,32 +1,18 @@
 """Remote perception ingest from the PC visual cortex."""
-import threading
 import time
-import os
+
+from mischief_common.object_geometry import label_score
 
 from .receiver import DetectionReceiver
-from .tracker import BoxTracker
-
-TRACKER_LABELS = {
-    x.strip().lower()
-    for x in os.getenv("TRACKER_LABELS", "person").split(",")
-    if x.strip()
-}
 
 
 class RemotePerception:
     def __init__(self, memory=None, camera=None, motion=None, fresh_seconds=1.0, stale_seconds=10.0):
         self.memory = memory
-        self.camera = camera
-        self.motion = motion
         self.receiver = DetectionReceiver()
-        self.tracker = BoxTracker()
-        self.tracked_received_at = 0.0
-        self.tracker_hz = float(os.getenv("TRACKER_HZ", "10"))
         self.fresh_seconds = fresh_seconds
         self.stale_seconds = stale_seconds
         self.error = ""
-        self._stop = threading.Event()
-        self._worker = None
 
     @property
     def detections(self):
@@ -34,76 +20,42 @@ class RemotePerception:
 
     @property
     def tracks(self):
-        return self.tracker.tracks()
+        return []
 
     def start(self):
-        if not self.camera or self._worker:
-            return
-        self._worker = threading.Thread(target=self._frame_worker, daemon=True)
-        self._worker.start()
+        pass
 
     def stop(self):
-        self._stop.set()
-
-    def _frame_worker(self):
-        while not self._stop.is_set():
-            t0 = time.time()
-            try:
-                recent = self.tracked_received_at and time.time() - self.tracked_received_at < 3.0
-                if not recent and not self.tracker.has_active():
-                    time.sleep(0.25)
-                    continue
-                motion = self.motion.status() if self.motion else {}
-                if hasattr(self.camera, "gray_snapshot"):
-                    gray, frame_at = self.camera.gray_snapshot(timeout=1)
-                    self.tracker.add_gray(gray, frame_at, motion)
-                else:
-                    frame = self.camera.snapshot(timeout=1)
-                    self.tracker.add_frame(frame, self.camera.frame_at, motion)
-            except Exception as e:
-                self.error = str(e)
-                time.sleep(0.1)
-            elapsed = time.time() - t0
-            period = 1 / max(1.0, self.tracker_hz)
-            if elapsed < period:
-                time.sleep(period - elapsed)
+        pass
 
     def ingest(self, payload):
         from mischief_common.filters import is_environmental
 
-        packet, detections = self.receiver.ingest(payload)
+        _, detections = self.receiver.ingest(payload)
         self.error = ""
-        trackable = [
-            d for d in detections
-            if d.get("label", "").lower().strip() in TRACKER_LABELS
-            and not is_environmental(d.get("label", ""))
-        ]
-        if trackable:
-            self.tracked_received_at = time.time()
-        tracks = self.tracker.ingest({**packet, "detections": trackable})
+        useful = [d for d in detections if not is_environmental(d.get("label", ""))]
         if self.memory:
-            self.memory.update([t for t in tracks
-                               if t.get("quality", 0) > 0.4
-                               and not is_environmental(t.get("label", ""))])
+            self.memory.update(useful)
         return self.status()
 
     def is_fresh(self):
         return bool(self.receiver.received_at and time.time() - self.receiver.received_at <= self.fresh_seconds)
 
     def best(self, query):
-        return self.tracker.best(query)
+        matches = [(label_score(query, {**d, "age": 0}), d) for d in self.receiver.latest]
+        matches = [(s, d) for s, d in matches if s > 0.45]
+        return max(matches, key=lambda x: (x[0], x[1].get("score", 0)))[1] if matches else None
 
     def track(self, track_id):
-        return self.tracker.track(track_id)
+        return None
 
     def status(self):
         now = time.time()
         age = None if not self.receiver.received_at else round(now - self.receiver.received_at, 3)
-        tracker = self.tracker.status()
         return {
             "detections": self.receiver.latest,
             "latest": self.receiver.latest,
-            "tracks": tracker["tracks"],
+            "tracks": [],
             "map": self.receiver.map,
             "age": age,
             "fresh": self.is_fresh(),
@@ -113,6 +65,5 @@ class RemotePerception:
             "backend": "remote-pc",
             "source": self.receiver.last_packet.get("source", "pc"),
             "model": self.receiver.last_packet.get("model"),
-            "tracker": {k: v for k, v in tracker.items() if k != "tracks"},
-            "tracker_labels": sorted(TRACKER_LABELS),
+            "tracker": {"backend": "disabled", "active": 0},
         }
