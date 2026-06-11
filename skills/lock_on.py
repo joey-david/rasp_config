@@ -81,7 +81,7 @@ def _with_stuck_bonus(turn, err, bonus, max_turn):
 def lock_on(robot, target="person", track_id=None, hz=12, kp=95, kd=28, lead=0.08,
             deadband=0.025, stop_deadband=0.010, min_turn=22, max_turn=42,
             stuck_epsilon=0.006, correction_epsilon=0.010, stuck_frames=2,
-            bonus_step=5, max_bonus=25,
+            bonus_step=3, max_bonus=18,
             detect_timeout=0.45, cycles=0):
     global _status
     _stop.clear()

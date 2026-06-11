@@ -1,10 +1,68 @@
 #!/usr/bin/env python3
-"""Fast Apple-Silicon person detector: Pi latest frame -> YOLO -> Pi detections."""
+"""Tiny PC detector service: POST /detect?label=person with a JPEG, get boxes."""
 from __future__ import annotations
 
 import argparse
 import io
+import json
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+
+class EdgeHold:
+    def __init__(self, edge=0.04, hold_s=1.0, needed=2):
+        self.edge, self.hold_s, self.needed = edge, hold_s, needed
+        self.state = {}
+
+    def _side(self, box):
+        if box[0] <= self.edge:
+            return "left"
+        if box[2] >= 1.0 - self.edge:
+            return "right"
+        return None
+
+    def _edge_box(self, det, side):
+        x1, y1, x2, y2 = det["box"]
+        w = max(0.04, min(0.35, x2 - x1))
+        if side == "left":
+            x1, x2 = 0.0, w
+        else:
+            x1, x2 = 1.0 - w, 1.0
+        return [x1, y1, x2, y2]
+
+    def apply(self, label, detections):
+        now = time.time()
+        label = label.lower()
+        label_dets = [d for d in detections if d.get("label", "").lower() == label]
+        seen_edges = set()
+        for det in label_dets:
+            side = self._side(det.get("box") or [])
+            if not side:
+                continue
+            key = (label, side)
+            st = self.state.get(key, {"streak": 0})
+            st = {"streak": st["streak"] + 1, "last": now, "det": det}
+            self.state[key] = st
+            seen_edges.add(side)
+        for key, st in list(self.state.items()):
+            if key[0] == label and now - st.get("last", 0) > self.hold_s:
+                del self.state[key]
+        if label_dets:
+            return detections
+        held = []
+        for (held_label, side), st in self.state.items():
+            if held_label != label or side in seen_edges or st.get("streak", 0) < self.needed:
+                continue
+            if now - st["last"] <= self.hold_s:
+                det = dict(st["det"])
+                det["id"] = f"{label}:held-{side}"
+                det["score"] = min(float(det.get("score") or 0.5), 0.2)
+                det["box"] = self._edge_box(det, side)
+                det["held_edge"] = side
+                det["held_age"] = round(now - st["last"], 3)
+                held.append(det)
+        return detections + held
 
 
 class PersonYolo:
@@ -12,15 +70,18 @@ class PersonYolo:
         from ultralytics import YOLO
         import torch
 
-        self.model, self.imgsz, self.conf = YOLO(model), imgsz, conf
+        self.name, self.imgsz, self.conf = model, imgsz, conf
+        self.net = YOLO(model)
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
 
-    def detect(self, jpg: bytes):
+    def detect(self, jpg: bytes, label: str):
+        if label.lower() not in {"person", "people", "human"}:
+            return []
         from PIL import Image
 
         img = Image.open(io.BytesIO(jpg)).convert("RGB")
         w, h = img.size
-        result = self.model.predict(
+        result = self.net.predict(
             img, classes=[0], imgsz=self.imgsz, conf=self.conf,
             device=self.device, verbose=False,
         )[0]
@@ -36,64 +97,63 @@ class PersonYolo:
         return out
 
 
-def grab_frame(pi: str):
-    import requests
+def serve(args):
+    detector = PersonYolo(args.model, args.imgsz, args.conf, args.device)
+    edge_hold = EdgeHold(args.edge_hold_margin, args.edge_hold_seconds, args.edge_hold_frames)
 
-    t0 = time.time()
-    r = requests.get(f"{pi}/frame/latest.jpg", timeout=1.0)
-    r.raise_for_status()
-    return r.content, float(r.headers.get("X-Captured-At") or time.time()), t0, time.time()
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
 
+        def send_json(self, code, obj):
+            body = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
-def post(pi: str, detections, frame_id, captured_at, timing, model):
-    import requests
+        def do_GET(self):
+            if urlparse(self.path).path == "/health":
+                return self.send_json(200, {
+                    "ok": True, "model": detector.name,
+                    "device": detector.device, "imgsz": detector.imgsz,
+                })
+            self.send_error(404)
 
-    payload = {
-        "source": "mac-person-yolo", "model": model, "frame_id": frame_id,
-        "captured_at": captured_at, "inferred_at": timing["infer_done_at"],
-        "sent_at": time.time(), "detections": detections, "pc_timing": timing,
-    }
-    r = requests.post(f"{pi}/api/perception/detections", json=payload, timeout=0.6)
-    r.raise_for_status()
-    return r.json()
+        def do_POST(self):
+            u = urlparse(self.path)
+            if u.path != "/detect":
+                return self.send_error(404)
+            label = (parse_qs(u.query).get("label") or ["person"])[0]
+            n = int(self.headers.get("Content-Length", "0") or 0)
+            jpg = self.rfile.read(n)
+            t0 = time.time()
+            try:
+                detections = edge_hold.apply(label, detector.detect(jpg, label))
+                self.send_json(200, {
+                    "ok": True, "label": label, "model": detector.name,
+                    "device": detector.device, "detections": detections,
+                    "inferred_at": time.time(), "infer_ms": round((time.time() - t0) * 1000, 1),
+                })
+            except Exception as e:
+                self.send_json(500, {"ok": False, "error": str(e), "detections": []})
 
-
-def run(args):
-    pi = args.pi.rstrip("/")
-    det = PersonYolo(args.model, args.imgsz, args.conf, args.device)
-    period = 1 / max(1, args.hz)
-    frame_id = 0
-    print(f"person detector model={args.model} device={det.device} imgsz={args.imgsz}", flush=True)
-    while not args.frames or frame_id < args.frames:
-        start = time.time()
-        try:
-            jpg, captured_at, t0, t1 = grab_frame(pi)
-            detections = det.detect(jpg)
-            t2 = time.time()
-            timing = {"snapshot_started_at": t0, "snapshot_received_at": t1,
-                      "infer_done_at": t2, "sent_at": time.time()}
-            state = post(pi, detections, frame_id, captured_at, timing, args.model)
-            lat = (state.get("latency") or {}).get("infer_ms")
-            labels = ",".join(f"{d['score']:.2f}" for d in detections) or "none"
-            print(f"frame={frame_id} n={len(detections)} infer={lat}ms scores={labels}", flush=True)
-            frame_id += 1
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            print(f"person detector retry: {e}", flush=True)
-        time.sleep(max(0, period - (time.time() - start)))
+    print(f"detect server http://{args.host}:{args.port} model={args.model} device={detector.device}", flush=True)
+    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--pi", default="http://192.168.0.43:8080")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=8081)
     p.add_argument("--model", default="yolo11n.pt")
     p.add_argument("--imgsz", type=int, default=320)
     p.add_argument("--conf", type=float, default=0.25)
-    p.add_argument("--hz", type=float, default=15)
     p.add_argument("--device", default="")
-    p.add_argument("--frames", type=int, default=0)
-    run(p.parse_args())
+    p.add_argument("--edge-hold-margin", type=float, default=0.04)
+    p.add_argument("--edge-hold-seconds", type=float, default=1.0)
+    p.add_argument("--edge-hold-frames", type=int, default=2)
+    serve(p.parse_args())
 
 
 if __name__ == "__main__":
