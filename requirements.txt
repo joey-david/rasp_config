@@ -1,9 +1,12 @@
 Pillow>=10.0.0
 PyYAML>=6.0
-lgpio>=0.2.2.0
+lgpio>=0.2.2.0; sys_platform == "linux"
 numpy>=1.26
 opencv-python-headless>=4.9
-evdev>=1.4.0
+evdev>=1.4.0; sys_platform == "linux"
+mlx>=0.29.0; sys_platform == "darwin"
+mlx-embedding-models>=0.0.3; sys_platform == "darwin"
+transformers<5; sys_platform == "darwin"
 
 # for the app server
 fastapi>=0.115

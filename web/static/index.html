@@ -33,13 +33,12 @@
   </div>
 
   <div class="group pill"><span class="label">Vision</span>&nbsp;<span id="vision">waiting</span></div>
-  <div class="group pill"><span class="label">Seen</span>&nbsp;<span id="seen">none</span></div>
 
   <label class="group"><input id="showDetections" type="checkbox" checked> Vision</label>
-  <button id="lockBtn" onclick="toggleLockPerson()">Lock Person</button>
+  <label class="group target-lock"><span class="label">Lock</span><input id="lockTarget" type="text" value="person" autocomplete="off" spellcheck="false" aria-label="Lock target"></label>
+  <button id="lockBtn" data-action="lock-on" onclick="toggleLockTarget()">Lock</button>
   <button class="danger" onclick="stopNow()">Stop</button>
   <button onclick="document.documentElement.requestFullscreen?.()">Full</button>
-  <button onclick="turboToggle()" id="turboBtn">Turbo</button>
   <button class="icon" data-action="settings" aria-label="Camera settings" onclick="$('drawer').classList.toggle('open')">Menu</button>
   <div id="err" class="err hide"></div>
 </main>

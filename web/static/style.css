@@ -11,6 +11,8 @@ body{margin:0;background:#050505;color:#f7f7fb;font-family:system-ui,sans-serif;
 button{border:0;border-radius:14px;height:34px;padding:0 13px;font-weight:850;background:#f7f7fb;color:#080a0d}
 .icon{min-width:56px;padding:0 10px}.danger{background:#fb7185;color:#1b0205}
 input{accent-color:white}input[type=range]{width:180px}
+.target-lock{gap:6px}.target-lock input{width:120px;height:28px;border:1px solid #ffffff24;border-radius:10px;background:#06080ccc;color:#f7f7fb;padding:0 9px;font-weight:750}
+.target-lock input:disabled{opacity:.72}
 
 .key{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#ffffff18;color:#b8bac4;font-size:12px;font-weight:850}
 .on{background:#f7f7fb;color:#080a0d}

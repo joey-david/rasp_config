@@ -1,11 +1,16 @@
 const down=new Set(), valid=["w","a","s","d"], CONTROL_MS=20, $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d");
 let lockOn=false, lastState={};
-let driveSeq=0;
+let driveSeq=Date.now()*1000;
 
 function keys(){return valid.filter(k=>down.has(k)).join("")}
 function drivePayload(){return {keys:keys(), power:+power.value, seq:++driveSeq}}
 function paintKeys(){for(const k of valid){$("h"+k).classList.toggle("on",down.has(k))}$("powerOut").textContent=power.value+"%"}
-async function post(path,data,signal){const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data),signal});return r.json().catch(()=>({}))}
+async function post(path,data,signal){
+  const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data),signal});
+  const out=await r.json().catch(()=>({}));
+  if(!r.ok)out.error=out.error||`HTTP ${r.status}`;
+  return out;
+}
 function frameSize(s){const [w,h]=(s.camera?.size||"1296x972").split("x").map(Number);return [w||1296,h||972]}
 
 function drawBox(d, style, label){
@@ -26,6 +31,7 @@ function drawOverlay(s){
     drawBox(lock,{stroke:"#22c55e",fill:"#052e16dd",text:"#dcfce7",width:3},d=>`lock off ${d.offset??0} turn ${d.turn??0}`);
     return;
   }
+  if(!["idle","manual"].includes(s.control?.mode||"idle"))return;
   const p=s.perception||{}, tracks=p.tracks||[], det=p.detections||[];
   ctx.lineWidth=3;ctx.font="14px system-ui";ctx.textBaseline="top";
   for(const d of det)drawBox(d,{stroke:"#60a5fa",fill:"#07152bdd",text:"#dbeafe",dash:[8,5],width:2},d=>`${d.label} pc ${Math.round((d.score||0)*100)}%`);
@@ -42,7 +48,12 @@ function paintSkillState(s){
   const lock=s.skill_runner?.lock_on||{};
   lockOn=!!lock.running;
   const b=$("lockBtn");
-  if(b){b.textContent=lockOn?"Stop Lock":"Lock Person";b.classList.toggle("on",lockOn)}
+  if(b){b.textContent=lockOn?"Stop Lock":"Lock";b.classList.toggle("on",lockOn)}
+  const input=$("lockTarget");
+  if(input){
+    input.disabled=lockOn;
+    if(lock.running && lock.target)input.value=lock.target;
+  }
 }
 
 function applyState(s){
@@ -50,11 +61,9 @@ function applyState(s){
   $("left").textContent=s.motion.left+"%";$("right").textContent=s.motion.right+"%";
   const c=s.camera.settings,p=s.perception||{};
   $("crop").value=c.crop;$("hflip").checked=!!c.hflip;$("vflip").checked=!!c.vflip;$("cropOut").textContent=c.crop+"%";
-  const det=p.detections||[],tracks=p.tracks||[],age=p.age==null?"no feed":p.age.toFixed(1)+"s",lat=p.latency?.infer_ms;
+  const age=p.age==null?"no feed":p.age.toFixed(1)+"s",lat=p.latency?.infer_ms;
   $("vision").textContent=`${p.model||p.backend||"none"} · ${p.fresh?"fresh":"stale"} · ${age}${lat?` · infer ${lat}ms`:""}`;
-  $("seen").textContent=(tracks.length?tracks:det).map(d=>`${d.label}${d.quality?` q${Math.round(d.quality*100)}%`:d.score?` ${Math.round(d.score*100)}%`:""}`).slice(0,6).join(", ")||"none";
   const err=[s.camera.error,p.error].filter(Boolean).join("\n");$("err").textContent=err;$("err").classList.toggle("hide",!err);
-  const btn=$("turboBtn");if(btn)btn.classList.toggle("on",!!s.turbo);
   paintHud(s);paintSkillState(s);drawOverlay(s);
 }
 
@@ -62,22 +71,19 @@ function applyDriveState(s){
   if(!s.motion)return;
   $("left").textContent=s.motion.left+"%";$("right").textContent=s.motion.right+"%";
   if(s.control)paintHud(s);
+  if(s.stale)showError(`stale drive command; resyncing seq ${s.seq??""}`);
 }
 
-let turboOn=false;
-async function turboToggle(){
-  turboOn=!turboOn;
-  const btn=$("turboBtn");btn.textContent=turboOn?"30fps":"Turbo";btn.classList.toggle("on",turboOn);
-  const r=await post("/turbo",{on:turboOn});turboOn=r.turbo;
-}
-
-async function toggleLockPerson(){
-  const r=await post(lockOn?"/skill/stop":"/skill/lock-person",{target:"person"});
+async function toggleLockTarget(){
+  const target=($("lockTarget")?.value||"person").trim()||"person";
+  const r=await post(lockOn?"/skill/stop":"/skill/lock-on",{target});
   lockOn=!lockOn && r.ok!==false;
-  const b=$("lockBtn");if(b){b.textContent=lockOn?"Stop Lock":"Lock Person";b.classList.toggle("on",lockOn)}
+  const b=$("lockBtn");if(b){b.textContent=lockOn?"Stop Lock":"Lock";b.classList.toggle("on",lockOn)}
+  const input=$("lockTarget");if(input)input.disabled=lockOn;
 }
 
 let driveInFlight=false, driveDirty=false, driveAbort=null, lastDriveAt=0;
+function showError(msg){$("err").textContent=msg||"";$("err").classList.toggle("hide",!msg)}
 async function sendDrive(force=false){
   paintKeys();
   if(driveInFlight){
@@ -88,8 +94,16 @@ async function sendDrive(force=false){
   const wait=Math.max(0,CONTROL_MS-(performance.now()-lastDriveAt));
   if(wait && !force)await new Promise(r=>setTimeout(r,wait));
   driveInFlight=true;driveDirty=false;driveAbort=new AbortController();lastDriveAt=performance.now();
-  try{applyDriveState(await post("/drive",drivePayload(),driveAbort.signal))}
-  catch(e){if(e.name!=="AbortError"){driveDirty=true}}
+  try{
+    const out=await post("/drive",drivePayload(),driveAbort.signal);
+    if(out.stale){
+      driveSeq=Date.now()*1000;
+      driveDirty=true;
+    }
+    applyDriveState(out);
+    if(out.error)showError(out.error);
+  }
+  catch(e){if(e.name!=="AbortError"){showError(e.message||String(e));driveDirty=true}}
   finally{
     driveInFlight=false;driveAbort=null;
     if(driveDirty)sendDrive();
@@ -101,12 +115,16 @@ async function settings(){
   $("cropOut").textContent=data.crop+"%";applyState(await post("/camera/settings",data));
 }
 
-window.addEventListener("keydown",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();if(!down.has(k)){down.add(k);sendDrive()}}});
-window.addEventListener("keyup",e=>{const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();down.delete(k);sendDrive()}});
+function isTyping(e){return ["INPUT","TEXTAREA","SELECT"].includes(e.target?.tagName)}
+window.addEventListener("keydown",e=>{if(isTyping(e))return;const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();if(!down.has(k)){down.add(k);sendDrive()}}});
+window.addEventListener("keyup",e=>{if(isTyping(e))return;const k=e.code?.slice(3).toLowerCase();if(valid.includes(k)){e.preventDefault();down.delete(k);sendDrive()}});
 window.addEventListener("blur",stopNow);
 power.addEventListener("input",sendDrive);
 for(const id of ["crop","hflip","vflip"])$(id).addEventListener("input",settings);
 $("showDetections").addEventListener("input",()=>fetch("/api/state").then(r=>r.json()).then(applyState));
+$("lockTarget").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();if(!lockOn)toggleLockTarget()}});
+$("lockTarget").addEventListener("focus",()=>{$("mode").textContent="typing";showError("typing target; WASD disabled")});
+$("lockTarget").addEventListener("blur",()=>showError(""));
 setInterval(()=>{if(down.size)sendDrive()},CONTROL_MS);
 setInterval(()=>fetch("/api/state").then(r=>r.json()).then(applyState),350);
 fetch("/api/state").then(r=>r.json()).then(applyState);

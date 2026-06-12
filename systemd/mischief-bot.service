@@ -17,7 +17,7 @@ Environment=MOTOR_PWM_FREQ=1000
 Environment=MOTOR_RAMP_SECONDS=0.05
 Environment=PC_DETECT_URL=http://192.168.0.24:8081/detect
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -u /home/joey/web_interface.py
+ExecStart=/usr/bin/python3 -u /home/joey/web/web_interface.py
 Restart=on-failure
 RestartSec=3
 

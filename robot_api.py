@@ -6,6 +6,7 @@ from hardware.motion import Motion
 from hardware.safety.safety import enforce as enforce_safety, status as safety_status
 from perception.camera import Camera
 from perception.remote import RemotePerception
+from perception.vision import VisionScanner
 from skills.objects import ObjectSkills
 
 TURNING_SPEED_BUILDUP = 2
@@ -15,6 +16,7 @@ class RobotAPI:
         self.camera = Camera()
         self.motion = Motion()
         self.perception = RemotePerception()
+        self.vision = VisionScanner(self)
         self.skills = ObjectSkills(self)
         self.control = {"mode": "idle", "keys": "", "source": "none"}
         self._status_cache = {}
@@ -32,9 +34,11 @@ class RobotAPI:
     def start(self):
         self.camera.start()
         self.perception.start()
+        self.vision.start()
 
     def close(self):
         self.stop()
+        self.vision.stop()
         self.perception.stop()
         self.camera.stop()
         self.motion.close()
@@ -132,6 +136,7 @@ class RobotAPI:
             "control": self.control,
             "safety": safety_status(),
             "stale": stale,
+            "seq": self._last_motion_seq,
         }
 
     def resolve_object(self, query, prefer_visible=True):
@@ -155,7 +160,6 @@ class RobotAPI:
             "camera": self.camera.status(),
             "perception": self.perception.status(),
             "safety": safety,
-            "turbo": _turbo,
             "layers": {
                 "level3": {"mode": "pc-perception", "source": self.perception.receiver.last_packet.get("source", "none")},
                 "level2": self.skills.status()["layer2"],
@@ -166,24 +170,6 @@ class RobotAPI:
         }
         self._status_at = now
         return self._status_cache
-
-
-_turbo = False
-
-
-def turbo(on: bool) -> dict:
-    """Performance mode: 30fps camera, no perception, pure WASD driving."""
-    global _turbo
-    if on == _turbo:
-        return {"turbo": _turbo, "changed": False}
-    _turbo = on
-    if on:
-        robot.camera.apply_settings(fps=30)
-        robot.perception.stop()
-    else:
-        robot.camera.apply_settings(fps=15)
-        robot.perception.start()
-    return {"turbo": _turbo, "changed": True}
 
 try:
     robot = RobotAPI()

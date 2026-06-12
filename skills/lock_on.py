@@ -1,226 +1,94 @@
 """Pi-side lock-on: ask the PC to detect target, then compute motion locally."""
-
-import json
-import os
 import threading
 import time
-import urllib.parse
-import urllib.request
+
+from perception.vision import DETECT_URL, box_center_x, detect_target, resolve_label
 
 _stop = threading.Event()
 _status = {"running": False}
-
-DETECT_URL = os.getenv("PC_DETECT_URL", "http://192.168.0.24:8081/detect")
 
 
 def _clamp(x, lo, hi):
     return max(lo, min(hi, float(x)))
 
 
-def _center(box):
-    return (float(box[0]) + float(box[2])) * 0.5
-
-
-def _sgn(x):
-    return 1 if x > 0 else -1 if x < 0 else 0
-
-
-def _slew(cur, target, step):
-    return cur + _clamp(target - cur, -step, step)
-
-
-def _best(detections, last_cx):
-    best, best_score = None, -1
-
-    for d in detections or []:
-        box = d.get("box") or []
-        if len(box) != 4:
-            continue
-
-        cx = _center(box)
-        score = float(d.get("score") or 0.5) - 0.35 * abs(cx - last_cx)
-
-        if score > best_score:
-            best, best_score = d, score
-
-    return best
-
-
-def _detect(robot, target, timeout):
-    frame, captured_at, frame_id = robot.camera.latest()
-    if not frame:
-        return [], {"error": "no frame"}
-
-    url = DETECT_URL + "?" + urllib.parse.urlencode({"label": target})
-
-    req = urllib.request.Request(
-        url,
-        data=frame,
-        method="POST",
-        headers={
-            "Content-Type": "image/jpeg",
-            "X-Captured-At": str(captured_at),
-            "X-Frame-Id": str(frame_id),
-        },
-    )
-
-    t0 = time.time()
-
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        out = json.loads(r.read().decode())
-
-    detections = out.get("detections") or []
-
-    robot.ingest_detections(
-        {
-            "source": "pc-detect-request",
-            "model": out.get("model"),
-            "frame_id": frame_id,
-            "captured_at": captured_at,
-            "inferred_at": out.get("inferred_at", time.time()),
-            "sent_at": time.time(),
-            "detections": detections,
-            "pc_timing": {
-                "snapshot_started_at": captured_at,
-                "snapshot_received_at": t0,
-                "infer_done_at": out.get("inferred_at", time.time()),
-                "sent_at": time.time(),
-            },
-        }
-    )
-
-    return detections, {
-        "infer_ms": out.get("infer_ms"),
-        "frame_id": frame_id,
-        "captured_at": captured_at,
-        "age_ms": round((time.time() - captured_at) * 1000),
-    }
-
-
-def _turn(err, derr, boost, kp, kd, stop_deadband, max_turn):
+def _turn(err, kp, deadband, stop_deadband, min_turn, max_turn):
+    cmd = kp * err
     if abs(err) <= stop_deadband:
         return 0.0
-
-    cmd = kp * err + kd * derr
-    cmd += boost * _sgn(err)
-
+    if abs(cmd) < min_turn:
+        span = max(0.001, deadband - stop_deadband)
+        boost = _clamp((abs(err) - stop_deadband) / span, 0.0, 1.0)
+        floor = min_turn * boost
+        if abs(cmd) < floor:
+            cmd = floor if (cmd or err) > 0 else -floor
     return _clamp(cmd, -max_turn, max_turn)
 
 
-def lock_on(
-    robot,
-    target="person",
-    track_id=None,
-    hz=15,
-    kp=70,
-    kd=18,
-    stop_deadband=0.018,
-    boost_err=0.04,
-    boost_improve=0.006,
-    boost_step=2.5,
-    boost_decay=0.35,
-    boost_max=30,
-    max_turn=50,
-    slew=7,
-    detect_timeout=0.45,
-    cycles=0,
-):
+def _with_stuck_bonus(turn, err, bonus, max_turn):
+    if not turn or not bonus:
+        return turn
+    return _clamp(turn + (bonus if err > 0 else -bonus), -max_turn, max_turn)
+
+
+def lock_on(robot, target="person", track_id=None, hz=12, kp=95,
+            deadband=0.025, stop_deadband=0.010, min_turn=22, max_turn=42,
+            stuck_epsilon=0.006, correction_epsilon=0.010, stuck_frames=2,
+            bonus_step=3, max_bonus=18,
+            detect_timeout=0.45, cycles=0):
     global _status
-
     _stop.clear()
-
     period = 1 / max(1, float(hz))
-    loop = 0
-
-    cx = 0.5
-    last_err = None
-    boost = 0.0
-    turn = 0.0
-
-    _status = {
-        "running": True,
-        "target": target,
-        "seen": False,
-        "detector": DETECT_URL,
-    }
-
+    cx, loop = 0.5, 0
+    last_raw_err, stuck_count, turn_bonus = None, 0, 0.0
+    try:
+        target_label, resolve_meta = resolve_label(target)
+    except Exception as e:
+        target_label, resolve_meta = target, {"resolve_error": str(e)}
+    _status = {"running": True, "target": target, "label": target_label, "seen": False, "detector": DETECT_URL, **resolve_meta}
     try:
         while not _stop.is_set() and (not cycles or loop < cycles):
             loop += 1
             started = time.time()
-
             try:
-                detections, meta = _detect(robot, target, detect_timeout)
-                det = _best(detections, cx)
+                det, meta = detect_target(robot, target_label, cx, detect_timeout)
             except Exception as e:
                 det, meta = None, {"error": str(e)}
-
             if not det:
-                boost = 0.0
-                last_err = None
-                turn = _slew(turn, 0.0, slew)
-
-                robot.set_velocity(0, turn, source="lock-on")
-
-                _status = {
-                    "running": True,
-                    "target": target,
-                    "seen": False,
-                    "turn": round(turn, 1),
-                    **meta,
-                }
-
+                robot.set_velocity(0, 0, source="lock-on")
+                _status = {"running": True, "target": target, "label": target_label, "seen": False, "turn": 0, **resolve_meta, **meta}
                 time.sleep(max(0, period - (time.time() - started)))
                 continue
-
-            cx = _center(det["box"])
-            err = cx - 0.5
-            abs_err = abs(err)
-
-            derr = 0.0 if last_err is None else err - last_err
-            improving = last_err is not None and abs_err < abs(last_err) - boost_improve
-
-            if abs_err <= stop_deadband:
-                boost = 0.0
-            elif abs_err >= boost_err and not improving:
-                boost = min(boost_max, boost + boost_step)
+            z = box_center_x(det["box"])
+            raw_err = z - 0.5
+            raw_abs = abs(raw_err)
+            if raw_abs <= stop_deadband:
+                stuck_count, turn_bonus = 0, 0.0
+            elif last_raw_err is not None and raw_err * last_raw_err > 0:
+                improving = raw_abs < abs(last_raw_err) - correction_epsilon
+                stationary = abs(raw_err - last_raw_err) <= stuck_epsilon
+                if improving:
+                    stuck_count, turn_bonus = 0, 0.0
+                elif stationary:
+                    stuck_count += 1
+                    if stuck_count >= stuck_frames:
+                        turn_bonus = min(max_bonus, turn_bonus + bonus_step)
+                else:
+                    stuck_count = max(0, stuck_count - 1)
             else:
-                boost *= boost_decay
-
-            wanted = _turn(
-                err=err,
-                derr=derr,
-                boost=boost,
-                kp=kp,
-                kd=kd,
-                stop_deadband=stop_deadband,
-                max_turn=max_turn,
-            )
-
-            turn = _slew(turn, wanted, slew)
-
+                stuck_count, turn_bonus = 0, 0.0
+            last_raw_err = raw_err
+            cx = z
+            err = cx - 0.5
+            turn = _turn(err, kp, deadband, stop_deadband, min_turn, max_turn)
+            turn = _with_stuck_bonus(turn, err, turn_bonus, max_turn)
             robot.set_velocity(0, turn, source="lock-on")
-
-            last_err = err
-
-            _status = {
-                "running": True,
-                "target": target,
-                "seen": True,
-                "box": det["box"],
-                "score": det.get("score"),
-                "cx": round(cx, 3),
-                "offset": round(err, 3),
-                "derr": round(derr, 3),
-                "turn": round(turn, 1),
-                "wanted": round(wanted, 1),
-                "boost": round(boost, 1),
-                "stop_deadband": stop_deadband,
-                **meta,
-            }
-
+            _status = {"running": True, "target": target, "label": target_label, "seen": True, "box": det["box"],
+                       "score": det.get("score"), "cx": round(cx, 3),
+                       "offset": round(err, 3), "turn": round(turn, 1),
+                       "stuck": stuck_count, "turn_bonus": round(turn_bonus, 1),
+                       "stop_deadband": stop_deadband, "min_turn": min_turn, **resolve_meta, **meta}
             time.sleep(max(0, period - (time.time() - started)))
-
     finally:
         robot.stop(source="lock-on")
         _status = {**_status, "running": False}

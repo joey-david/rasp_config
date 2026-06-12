@@ -5,20 +5,49 @@ import mimetypes
 from pathlib import Path
 import signal
 import subprocess
+import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-from robot_api import robot, turbo
-from motion_udp import UDPMotionServer
-from skills.lock_on import lock_on, stop_lock, status as lock_status, is_running as lock_running
-import threading
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
+from robot_api import robot
+from hardware.motion_udp import UDPMotionServer
+from skills.lock_on import lock_on, stop_lock, status as lock_status, is_running as lock_running
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class RobotServer(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 64
+
+
+def handle_skill_post(path, body):
+    if path == "/skill/goto":
+        return 200, robot.goto(body.get("target", ""))
+    if path == "/skill/push":
+        return 200, robot.push(body.get("target", ""))
+    if path == "/skill/stop":
+        stop_lock()
+        return 200, {"ok": True, "stopped": True}
+    if path != "/skill/lock-on":
+        return None
+    if lock_running():
+        return 409, {"ok": False, "error": "lock-on already running", "status": lock_status()}
+    target = str(body.get("target") or "person").strip() or "person"
+    threading.Thread(
+        target=lock_on, daemon=True,
+        kwargs={
+            "robot": robot,
+            "target": target,
+            "track_id": body.get("track_id"),
+            "cycles": int(body.get("cycles") or 0),
+        },
+    ).start()
+    return 200, {"ok": True, "skill": "lock-on", "target": target}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -50,24 +79,10 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/motion/set_velocity": return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
         if p == "/motion/stop": return self.send(200, robot.stop(b.get("seq"), "http"))
         if p == "/camera/settings": robot.camera.apply_settings(**b); return self.send(200, robot.status())
-        if p == "/skill/goto": return self.send(200, robot.goto(b.get("target", "")))
-        if p == "/skill/push": return self.send(200, robot.push(b.get("target", "")))
-        if p in ("/skill/lock-on", "/skill/lock-person"):
-            if lock_running():
-                return self.send(409, {"ok": False, "error": "lock-on already running", "status": lock_status()})
-            target = b.get("target") or "person"
-            t = threading.Thread(
-                target=lock_on, daemon=True,
-                kwargs={"robot": robot, "target": target,
-                        "track_id": b.get("track_id"),
-                        "cycles": int(b.get("cycles") or 0)})
-            t.start()
-            return self.send(200, {"ok": True, "skill": "lock-on", "target": target})
-        if p == "/skill/stop":
-            stop_lock()
-            return self.send(200, {"ok": True, "stopped": True})
-        if p == "/turbo":
-            return self.send(200, turbo(b.get("on", True)))
+        skill_response = handle_skill_post(p, b)
+        if skill_response:
+            code, body = skill_response
+            return self.send(code, body)
         self.send_error(404)
 
     def do_GET(self):
