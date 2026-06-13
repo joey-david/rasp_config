@@ -11,3 +11,4 @@ transformers<5; sys_platform == "darwin"
 # for the app server
 fastapi>=0.115
 uvicorn>=0.35
+opencv-python-headless

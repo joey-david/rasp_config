@@ -53,3 +53,8 @@ Getting lock-on in a close-to-reliable state. Need to drastically simplify it, s
 ## June 12th
 
 Semantic matcher for closest COCO target (will be useful for LLM parsing/matching of targets). Tested on web interface with lock_on.Lots of refactorization for later ease of expansion. Changed lock_on to be general.
+
+## June 13th
+
+Added odometry folder for hyper-low-latency on-device visual speed estimation.
+Important: established that the operative range for turning is 30-45: under 30 has too much friction, above 50 can't capture angular speed meaninfully - only use for _EMOTES_.

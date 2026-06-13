@@ -8,6 +8,7 @@
 camera-recordings/
 recordings/
 captures/
+calibrations/
 video/
 *.pt
 .old_IGNORE/
@@ -26,3 +27,4 @@ video/
 .local/
 .config/
 .copilot/
+calibrations/odometry/**/footage*

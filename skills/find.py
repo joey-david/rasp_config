@@ -1,5 +1,6 @@
-"""Pi-side lock-on: ask the PC to detect target, then compute motion locally."""
+"""Pi-side finding: turn in place (for now) until the desired object is centered."""
 
+# TODO: navigate known space/use memory)
 import threading
 import time
 
@@ -53,7 +54,7 @@ def lock_on(
             except Exception as e:
                 det, meta = None, {"error": str(e)}
             if not det:
-                robot.movement.set_velocity(0, 0, source="lock-on")
+                robot.set_velocity(0, 0, source="lock-on")
                 _status = {
                     "running": True,
                     "target": target,
@@ -86,11 +87,9 @@ def lock_on(
             last_raw_err = raw_err
             cx = z
             err = cx - 0.5
-            turn = robot.movement.turn(
-                err, kp, deadband, stop_deadband, min_turn, max_turn
-            )
-            turn = robot.movement.with_stuck_bonus(turn, err, turn_bonus, max_turn)
-            robot.movement.set_velocity(0, turn, source="lock-on")
+            turn = _turn(err, kp, deadband, stop_deadband, min_turn, max_turn)
+            turn = _with_stuck_bonus(turn, err, turn_bonus, max_turn)
+            robot.set_velocity(0, turn, source="lock-on")
             _status = {
                 "running": True,
                 "target": target,
@@ -110,7 +109,7 @@ def lock_on(
             }
             time.sleep(max(0, period - (time.time() - started)))
     finally:
-        robot.movement.stop(source="lock-on")
+        robot.stop(source="lock-on")
         _status = {**_status, "running": False}
 
 

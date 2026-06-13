@@ -13,6 +13,40 @@ from skills.objects import ObjectSkills
 TURNING_SPEED_BUILDUP = 2
 
 
+class SkillMovement:
+    """Reusable motion policy helpers for skills."""
+
+    def __init__(self, robot):
+        self.robot = robot
+
+    @staticmethod
+    def clamp(x, lo, hi):
+        return max(lo, min(hi, float(x)))
+
+    def turn(self, err, kp, deadband, stop_deadband, min_turn, max_turn):
+        cmd = kp * err
+        if abs(err) <= stop_deadband:
+            return 0.0
+        if abs(cmd) < min_turn:
+            span = max(0.001, deadband - stop_deadband)
+            boost = self.clamp((abs(err) - stop_deadband) / span, 0.0, 1.0)
+            floor = min_turn * boost
+            if abs(cmd) < floor:
+                cmd = floor if (cmd or err) > 0 else -floor
+        return self.clamp(cmd, -max_turn, max_turn)
+
+    def with_stuck_bonus(self, turn, err, bonus, max_turn):
+        if not turn or not bonus:
+            return turn
+        return self.clamp(turn + (bonus if err > 0 else -bonus), -max_turn, max_turn)
+
+    def set_velocity(self, linear, angular, seq=None, source="skill"):
+        return self.robot.set_velocity(linear, angular, seq=seq, source=source)
+
+    def stop(self, seq=None, source="skill"):
+        return self.robot.stop(seq=seq, source=source)
+
+
 class RobotAPI:
     def __init__(self):
         self.camera = Camera()
@@ -20,6 +54,7 @@ class RobotAPI:
         self.perception = RemotePerception()
         self.vision = VisionScanner(self)
         self.skills = ObjectSkills(self)
+        self.movement = SkillMovement(self)
         self.control = {"mode": "idle", "keys": "", "source": "none"}
         self._status_cache = {}
         self._status_at = 0.0
