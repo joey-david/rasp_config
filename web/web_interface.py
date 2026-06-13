@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from robot_api import robot
+from skills import emotes
 from hardware.motion_udp import UDPMotionServer
 from skills.lock_on import lock_on, stop_lock, status as lock_status, is_running as lock_running
 from skills.lock_on_odometric import (
@@ -111,6 +112,7 @@ class Handler(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         if p == "/": return self.send_static("index.html", "text/html; charset=utf-8")
         if p.startswith("/static/"): return self.send_static(p.removeprefix("/static/"))
+        if p == "/api/emotes": return self.send(200, {"emotes": emotes.names()})
         if p == "/api/state":
             status = robot.status()
             status["skill_runner"] = {

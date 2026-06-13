@@ -9,9 +9,18 @@
 <div class="shade"></div>
 
 <div class="hud" aria-label="drive state">
-  <div id="mode" class="mode">idle</div>
-  <span></span><span id="hw" class="key">W</span><span></span>
-  <span id="ha" class="key">A</span><span id="hs" class="key">S</span><span id="hd" class="key">D</span>
+  <div class="wasd">
+    <div id="mode" class="mode">idle</div>
+    <span></span><span id="hw" class="key">W</span><span></span>
+    <span id="ha" class="key">A</span><span id="hs" class="key">S</span><span id="hd" class="key">D</span>
+  </div>
+
+  <div class="hud-panel">
+    <span class="stat"><span class="label">Left</span><span id="left" class="value">0%</span></span>
+    <span class="stat"><span class="label">Right</span><span id="right" class="value">0%</span></span>
+    <span class="stat wide"><span class="label">Odo rot</span><span id="odo" class="value">0.00 rad/s</span></span>
+    <span class="stat wide"><span class="label">Vision</span><span id="vision" class="value">waiting</span></span>
+  </div>
 </div>
 
 <aside id="drawer" class="drawer">
@@ -27,12 +36,12 @@
     <input id="power" type="range" min="0" max="100" value="70">
   </label>
 
-  <div class="group">
-    <span class="stat"><span class="label">Left</span><span id="left" class="value">0%</span></span>
-    <span class="stat"><span class="label">Right</span><span id="right" class="value">0%</span></span>
-  </div>
-
-  <div class="group pill"><span class="label">Vision</span>&nbsp;<span id="vision">waiting</span></div>
+  <label class="group emote-picker">
+    <span class="label">Emote</span>
+    <select id="emoteSelect" aria-label="Run emote">
+      <option value="">Loading…</option>
+    </select>
+  </label>
 
   <label class="group"><input id="showDetections" type="checkbox" checked> Vision</label>
   <label class="group target-lock"><span class="label">Lock</span><input id="lockTarget" type="text" value="person" autocomplete="off" spellcheck="false" aria-label="Lock target"></label>
