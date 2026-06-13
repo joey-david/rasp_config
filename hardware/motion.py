@@ -14,7 +14,7 @@ try:
 except ImportError:  # pragma: no cover - direct script execution
     from motors import Motors
 
-WATCHDOG_SECONDS = float(os.environ.get("MOTOR_WATCHDOG_SECONDS", "1.0"))
+WATCHDOG_SECONDS = float(os.environ.get("MOTOR_WATCHDOG_SECONDS", "10.0"))
 RELEASE_IDLE_SECONDS = float(os.environ.get("MOTOR_RELEASE_IDLE_SECONDS", "5.0"))
 
 

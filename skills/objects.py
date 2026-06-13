@@ -6,7 +6,6 @@ import time
 SEARCH_SECONDS = 10.0
 
 
-# returns True if
 def is_pi_track(obj):
     return str(obj.get("source", "")).startswith("pi-")
 
@@ -48,7 +47,6 @@ class ObjectSkills:
             self.current["phase"] = "search-wait" if not allow_motion else "search-spin"
             if allow_motion:
                 self.robot.set_velocity(0, 30)
-            # obj is
             obj = self.robot.resolve_object(target, prefer_visible=True)
             if obj and is_pi_track(obj) and obj.get("quality", 0) >= 0.4:
                 self.robot.stop()
@@ -58,6 +56,43 @@ class ObjectSkills:
 
         self.robot.stop()
         return self.robot.resolve_object(target, prefer_visible=False) or best
+
+    def find_odometric(self, target: str, timeout=SEARCH_SECONDS, turn=28):
+        end = time.time() + timeout
+        self.robot.odometry.reset()
+        self.robot.movement.set_rotation_target(0.08 if turn >= 0 else -0.08)
+        self.current = {"skill": "find-odometric", "phase": "search", "target": target}
+        try:
+            while time.time() < end:
+                obj = self.robot.resolve_object(target, prefer_visible=True)
+                odom = self.robot.odometry.update()
+                if not obj:
+                    self.current = {
+                        "skill": "find-odometric",
+                        "phase": "search",
+                        "target": target,
+                        "odom": odom,
+                    }
+                    self.robot.movement.set_velocity(0, turn, source="find-odometric")
+                    time.sleep(0.1)
+                    continue
+
+                cmd = self.visual_servo_command(obj)
+                self.current = {
+                    "skill": "find-odometric",
+                    "phase": "center" if abs(cmd.angular) > 4 else "found",
+                    "target": target,
+                    "command": cmd.dict(),
+                    "odom": odom,
+                }
+                if abs(cmd.angular) <= 4:
+                    return obj
+                self.robot.movement.set_velocity(0, cmd.angular, source="find-odometric")
+                time.sleep(0.1)
+        finally:
+            self.robot.movement.stop(source="find-odometric")
+            self.robot.movement.set_rotation_target(0.0)
+        return self.robot.resolve_object(target, prefer_visible=True)
 
     def plan_goto(self, target: str, contact=False):
         obj = self.find(target)

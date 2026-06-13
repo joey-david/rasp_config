@@ -16,6 +16,12 @@ sys.path.insert(0, str(ROOT))
 from robot_api import robot
 from hardware.motion_udp import UDPMotionServer
 from skills.lock_on import lock_on, stop_lock, status as lock_status, is_running as lock_running
+from skills.lock_on_odometric import (
+    lock_on_odometric,
+    stop_lock as stop_odo_lock,
+    status as odo_lock_status,
+    is_running as odo_lock_running,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -28,18 +34,29 @@ class RobotServer(ThreadingHTTPServer):
 def handle_skill_post(path, body):
     if path == "/skill/goto":
         return 200, robot.goto(body.get("target", ""))
+    if path == "/skill/find":
+        return 200, robot.find(body.get("target", ""))
     if path == "/skill/push":
         return 200, robot.push(body.get("target", ""))
+    if path == "/skill/emote":
+        return 200, robot.emote(body.get("name", ""), body.get("scale", 1.0))
     if path == "/skill/stop":
         stop_lock()
+        stop_odo_lock()
         return 200, {"ok": True, "stopped": True}
-    if path != "/skill/lock-on":
+    if path not in {"/skill/lock-on", "/skill/lock-on-odometric"}:
         return None
-    if lock_running():
-        return 409, {"ok": False, "error": "lock-on already running", "status": lock_status()}
+    if lock_running() or odo_lock_running():
+        return 409, {
+            "ok": False,
+            "error": "lock-on already running",
+            "status": {"lock_on": lock_status(), "lock_on_odometric": odo_lock_status()},
+        }
     target = str(body.get("target") or "person").strip() or "person"
+    use_odo = path == "/skill/lock-on-odometric"
     threading.Thread(
-        target=lock_on, daemon=True,
+        target=lock_on_odometric if use_odo else lock_on,
+        daemon=True,
         kwargs={
             "robot": robot,
             "target": target,
@@ -47,7 +64,11 @@ def handle_skill_post(path, body):
             "cycles": int(body.get("cycles") or 0),
         },
     ).start()
-    return 200, {"ok": True, "skill": "lock-on", "target": target}
+    return 200, {
+        "ok": True,
+        "skill": "lock-on-odometric" if use_odo else "lock-on",
+        "target": target,
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -78,6 +99,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/drive": return self.send(200, robot.drive_keys(b.get("keys", ""), b.get("power"), b.get("seq")))
         if p == "/motion/set_velocity": return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
         if p == "/motion/stop": return self.send(200, robot.stop(b.get("seq"), "http"))
+        if p == "/odometry/rotation": return self.send(200, robot.odometry.set_rotation_target(b.get("rad_s", 0)))
         if p == "/camera/settings": robot.camera.apply_settings(**b); return self.send(200, robot.status())
         skill_response = handle_skill_post(p, b)
         if skill_response:
@@ -91,9 +113,13 @@ class Handler(BaseHTTPRequestHandler):
         if p.startswith("/static/"): return self.send_static(p.removeprefix("/static/"))
         if p == "/api/state":
             status = robot.status()
-            status["skill_runner"] = {"lock_on": lock_status()}
+            status["skill_runner"] = {
+                "lock_on": lock_status(),
+                "lock_on_odometric": odo_lock_status(),
+            }
             return self.send(200, status)
         if p == "/api/detections": return self.send(200, robot.perception.status())
+        if p == "/api/odometry": return self.send(200, robot.odometry.update())
         if p == "/frame/latest.jpg":
             frame, frame_at, frame_id = robot.camera.latest()
             headers = {"X-Captured-At": frame_at, "X-Frame-Id": frame_id}

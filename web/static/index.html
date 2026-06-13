@@ -36,7 +36,8 @@
 
   <label class="group"><input id="showDetections" type="checkbox" checked> Vision</label>
   <label class="group target-lock"><span class="label">Lock</span><input id="lockTarget" type="text" value="person" autocomplete="off" spellcheck="false" aria-label="Lock target"></label>
-  <button id="lockBtn" data-action="lock-on" onclick="toggleLockTarget()">Lock</button>
+  <button id="lockBtn" data-action="lock-on" onclick="toggleLockTarget('normal')">Lock</button>
+  <button id="lockOdoBtn" data-action="lock-on-odometric" onclick="toggleLockTarget('odometric')">Odo Lock</button>
   <button class="danger" onclick="stopNow()">Stop</button>
   <button onclick="document.documentElement.requestFullscreen?.()">Full</button>
   <button class="icon" data-action="settings" aria-label="Camera settings" onclick="$('drawer').classList.toggle('open')">Menu</button>

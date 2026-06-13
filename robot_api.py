@@ -6,8 +6,10 @@ import math
 from hardware.motion import Motion
 from hardware.safety.safety import enforce as enforce_safety, status as safety_status
 from perception.camera import Camera
+from perception.odometry.runtime import RobotOdometry
 from perception.remote import RemotePerception
 from perception.vision import VisionScanner
+from skills import emotes
 from skills.objects import ObjectSkills
 
 TURNING_SPEED_BUILDUP = 2
@@ -46,6 +48,12 @@ class SkillMovement:
     def stop(self, seq=None, source="skill"):
         return self.robot.stop(seq=seq, source=source)
 
+    def rotation_rad_s(self):
+        return self.robot.odometry.rotation_rad_s()
+
+    def set_rotation_target(self, rad_s):
+        return self.robot.odometry.set_rotation_target(rad_s)
+
 
 class RobotAPI:
     def __init__(self):
@@ -53,6 +61,7 @@ class RobotAPI:
         self.motion = Motion()
         self.perception = RemotePerception()
         self.vision = VisionScanner(self)
+        self.odometry = RobotOdometry(self)
         self.skills = ObjectSkills(self)
         self.movement = SkillMovement(self)
         self.control = {"mode": "idle", "keys": "", "source": "none"}
@@ -195,8 +204,14 @@ class RobotAPI:
     def goto(self, target):
         return self.skills.goto(target)
 
+    def find(self, target):
+        return self.skills.find_odometric(target)
+
     def push(self, target):
         return self.skills.push(target)
+
+    def emote(self, name, scale=1.0):
+        return emotes.run(self, name, scale)
 
     def status(self, force=False):
         now = time.time()
@@ -212,6 +227,7 @@ class RobotAPI:
             "motion": motion,
             "camera": self.camera.status(),
             "perception": self.perception.status(),
+            "odometry": self.odometry.status(),
             "safety": safety,
             "layers": {
                 "level3": {

@@ -1,5 +1,5 @@
 const down=new Set(), valid=["w","a","s","d"], CONTROL_MS=20, $=id=>document.getElementById(id), power=$("power"), cv=$("overlay"), ctx=cv.getContext("2d");
-let lockOn=false, lastState={};
+let lockOn=false, lockOdo=false, lastState={};
 let driveSeq=Date.now()*1000;
 
 function keys(){return valid.filter(k=>down.has(k)).join("")}
@@ -25,7 +25,7 @@ function drawOverlay(s){
   lastState=s;
   cv.width=innerWidth;cv.height=innerHeight;ctx.clearRect(0,0,cv.width,cv.height);
   if(!$("showDetections").checked)return;
-  const lock=s.skill_runner?.lock_on||{};
+  const lock=s.skill_runner?.lock_on_odometric?.running?s.skill_runner.lock_on_odometric:(s.skill_runner?.lock_on||{});
   if(lock.running && lock.box){
     ctx.lineWidth=3;ctx.font="14px system-ui";ctx.textBaseline="top";
     drawBox(lock,{stroke:"#22c55e",fill:"#052e16dd",text:"#dcfce7",width:3},d=>`lock off ${d.offset??0} turn ${d.turn??0}`);
@@ -45,14 +45,18 @@ function paintHud(s){
 }
 
 function paintSkillState(s){
-  const lock=s.skill_runner?.lock_on||{};
+  const lock=s.skill_runner?.lock_on||{}, odo=s.skill_runner?.lock_on_odometric||{};
   lockOn=!!lock.running;
+  lockOdo=!!odo.running;
   const b=$("lockBtn");
   if(b){b.textContent=lockOn?"Stop Lock":"Lock";b.classList.toggle("on",lockOn)}
+  const ob=$("lockOdoBtn");
+  if(ob){ob.textContent=lockOdo?"Stop Odo":"Odo Lock";ob.classList.toggle("on",lockOdo)}
   const input=$("lockTarget");
   if(input){
-    input.disabled=lockOn;
+    input.disabled=lockOn||lockOdo;
     if(lock.running && lock.target)input.value=lock.target;
+    if(odo.running && odo.target)input.value=odo.target;
   }
 }
 
@@ -74,12 +78,16 @@ function applyDriveState(s){
   if(s.stale)showError(`stale drive command; resyncing seq ${s.seq??""}`);
 }
 
-async function toggleLockTarget(){
+async function toggleLockTarget(kind="normal"){
   const target=($("lockTarget")?.value||"person").trim()||"person";
-  const r=await post(lockOn?"/skill/stop":"/skill/lock-on",{target});
-  lockOn=!lockOn && r.ok!==false;
+  const running=lockOn||lockOdo;
+  const path=running?"/skill/stop":(kind==="odometric"?"/skill/lock-on-odometric":"/skill/lock-on");
+  const r=await post(path,{target});
+  lockOn=!running && kind!=="odometric" && r.ok!==false;
+  lockOdo=!running && kind==="odometric" && r.ok!==false;
   const b=$("lockBtn");if(b){b.textContent=lockOn?"Stop Lock":"Lock";b.classList.toggle("on",lockOn)}
-  const input=$("lockTarget");if(input)input.disabled=lockOn;
+  const ob=$("lockOdoBtn");if(ob){ob.textContent=lockOdo?"Stop Odo":"Odo Lock";ob.classList.toggle("on",lockOdo)}
+  const input=$("lockTarget");if(input)input.disabled=lockOn||lockOdo;
 }
 
 let driveInFlight=false, driveDirty=false, driveAbort=null, lastDriveAt=0;
@@ -109,7 +117,7 @@ async function sendDrive(force=false){
     if(driveDirty)sendDrive();
   }
 }
-async function stopNow(){down.clear();paintKeys();await post("/motion/stop",{})}
+async function stopNow(){down.clear();paintKeys();await post("/skill/stop",{});await post("/motion/stop",{})}
 async function settings(){
   const data={crop:+$("crop").value,hflip:$("hflip").checked,vflip:$("vflip").checked};
   $("cropOut").textContent=data.crop+"%";applyState(await post("/camera/settings",data));
