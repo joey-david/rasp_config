@@ -1,4 +1,5 @@
 """Central robot facade. Web and skills call this, not hardware directly."""
+
 import time
 import math
 
@@ -10,6 +11,7 @@ from perception.vision import VisionScanner
 from skills.objects import ObjectSkills
 
 TURNING_SPEED_BUILDUP = 2
+
 
 class RobotAPI:
     def __init__(self):
@@ -24,22 +26,22 @@ class RobotAPI:
         self._status_ttl = 0.1
         self._last_motion_seq = -1
         self.key_turn_target = 0
-        
-    @property
-    def direction(self): return self.motion.direction
 
     @property
-    def speed(self): return self.motion.speed
+    def direction(self):
+        return self.motion.direction
+
+    @property
+    def speed(self):
+        return self.motion.speed
 
     def start(self):
         self.camera.start()
-        self.perception.start()
         self.vision.start()
 
     def close(self):
         self.stop()
         self.vision.stop()
-        self.perception.stop()
         self.camera.stop()
         self.motion.close()
 
@@ -61,14 +63,17 @@ class RobotAPI:
         self._status_at = 0.0
         return self.motion.stop()
 
-
     # see video/script/curve_turn_tweak.png for new logic
     def drive_keys(self, keys, power=None, seq=None):
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
 
         clean = "".join(c for c in str(keys).lower() if c in "wasd")
-        self.control = {"mode": "manual" if clean else "idle", "keys": clean, "source": "web"}
+        self.control = {
+            "mode": "manual" if clean else "idle",
+            "keys": clean,
+            "source": "web",
+        }
 
         p = max(0, min(100, int(power if power is not None else self.motion.power)))
         y = int("w" in clean) - int("s" in clean)
@@ -114,16 +119,21 @@ class RobotAPI:
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
         self.control = {"mode": "manual", "keys": "", "source": source}
-        self.motion.tank(left, right); enforce_safety(self); return self.drive_status()
+        self.motion.tank(left, right)
+        enforce_safety(self)
+        return self.drive_status()
 
     def set_velocity(self, linear, angular, seq=None, source="layer2"):
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
         self.control = {"mode": "auto", "keys": "", "source": source}
         self._status_at = 0.0
-        out = self.motion.set_velocity(linear, angular); enforce_safety(self); return out
+        out = self.motion.set_velocity(linear, angular)
+        enforce_safety(self)
+        return out
 
-    def snapshot(self): return self.camera.snapshot()
+    def snapshot(self):
+        return self.camera.snapshot()
 
     def ingest_detections(self, payload):
         self._status_at = 0.0
@@ -139,19 +149,27 @@ class RobotAPI:
             "seq": self._last_motion_seq,
         }
 
+    #
     def resolve_object(self, query, prefer_visible=True):
         from mischief_common.filters import is_environmental
+
         if is_environmental(query):
             return None
         return self.perception.best(query)
 
-    def goto(self, target): return self.skills.goto(target)
+    def goto(self, target):
+        return self.skills.goto(target)
 
-    def push(self, target): return self.skills.push(target)
+    def push(self, target):
+        return self.skills.push(target)
 
     def status(self, force=False):
         now = time.time()
-        if not force and self._status_cache and now - self._status_at <= self._status_ttl:
+        if (
+            not force
+            and self._status_cache
+            and now - self._status_at <= self._status_ttl
+        ):
             return self._status_cache
         motion = self.motion.status()
         safety = safety_status()
@@ -161,7 +179,12 @@ class RobotAPI:
             "perception": self.perception.status(),
             "safety": safety,
             "layers": {
-                "level3": {"mode": "pc-perception", "source": self.perception.receiver.last_packet.get("source", "none")},
+                "level3": {
+                    "mode": "pc-perception",
+                    "source": self.perception.receiver.last_packet.get(
+                        "source", "none"
+                    ),
+                },
                 "level2": self.skills.status()["layer2"],
                 "level1": motion,
                 "level0": safety,
@@ -171,10 +194,12 @@ class RobotAPI:
         self._status_at = now
         return self._status_cache
 
+
 try:
     robot = RobotAPI()
 except Exception as e:
     import sys
+
     if "GPIO busy" in str(e) or "busy" in str(e).lower():
         print("GPIO busy — service already running. Stop it first:", file=sys.stderr)
         print("  sudo systemctl stop mischief-bot.service", file=sys.stderr)

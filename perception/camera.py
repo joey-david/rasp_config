@@ -1,4 +1,5 @@
 """Raw camera service: rpicam process, MJPEG frames, snapshots."""
+
 import io, os, signal, subprocess, threading, time
 from PIL import Image
 
@@ -12,12 +13,17 @@ WIDTH = int(os.getenv("CAMERA_WIDTH", 1296))
 HEIGHT = int(os.getenv("CAMERA_HEIGHT", 972))
 FPS = int(os.getenv("CAMERA_FPS", 30))
 MODE = os.getenv("CAMERA_MODE", "").strip()
-GRAY_SIZE = (int(os.getenv("CAMERA_GRAY_WIDTH", WIDTH)), int(os.getenv("CAMERA_GRAY_HEIGHT", HEIGHT)))
+GRAY_SIZE = (
+    int(os.getenv("CAMERA_GRAY_WIDTH", WIDTH)),
+    int(os.getenv("CAMERA_GRAY_HEIGHT", HEIGHT)),
+)
 
 
 def clamp(v, lo, hi, default):
-    try: return max(lo, min(hi, int(v)))
-    except Exception: return default
+    try:
+        return max(lo, min(hi, int(v)))
+    except Exception:
+        return default
 
 
 def yes(v, default=False):
@@ -42,14 +48,19 @@ def jpeg_frames(stream):
                 if start > 0:
                     del buf[:start]
                 break
-            frame = bytes(buf[start:end + 2])
-            del buf[:end + 2]
+            frame = bytes(buf[start : end + 2])
+            del buf[: end + 2]
             yield frame
 
 
 class Camera:
     def __init__(self):
-        self.settings = {"fps": clamp(FPS, 1, 30, 30), "hflip": False, "vflip": False, "crop": 0}
+        self.settings = {
+            "fps": clamp(FPS, 1, 30, 30),
+            "hflip": False,
+            "vflip": False,
+            "crop": 0,
+        }
         self.frame, self.frame_at, self.frame_id, self.error = None, 0, 0, ""
         self.gray, self.gray_at, self._gray_source_at = None, 0, 0
         self._version = 0
@@ -61,7 +72,8 @@ class Camera:
 
     def stop(self):
         self._stop.set()
-        with self._cv: self._cv.notify_all()
+        with self._cv:
+            self._cv.notify_all()
 
     def apply_settings(self, **kw):
         with self._cv:
@@ -79,23 +91,37 @@ class Camera:
 
     def cmd(self, s):
         cmd = [
-            "rpicam-vid", "-n", "--codec", "mjpeg",
-            "--width", str(WIDTH), "--height", str(HEIGHT),
-            "--framerate", str(s["fps"]),
-            "--timeout", "0", "--output", "-",
+            "rpicam-vid",
+            "-n",
+            "--codec",
+            "mjpeg",
+            "--width",
+            str(WIDTH),
+            "--height",
+            str(HEIGHT),
+            "--framerate",
+            str(s["fps"]),
+            "--timeout",
+            "0",
+            "--output",
+            "-",
         ]
-        if MODE: cmd += ["--mode", MODE]
-        if s["hflip"]: cmd += ["--hflip"]
-        if s["vflip"]: cmd += ["--vflip"]
+        if MODE:
+            cmd += ["--mode", MODE]
+        if s["hflip"]:
+            cmd += ["--hflip"]
+        if s["vflip"]:
+            cmd += ["--vflip"]
         return cmd
 
     def crop(self, frame):
         p = self.settings["crop"]
-        if p <= 0: return frame
+        if p <= 0:
+            return frame
         try:
             img = Image.open(io.BytesIO(frame)).convert("RGB")
             w, h = img.size
-            keep = max(.25, 1 - p / 100)
+            keep = max(0.25, 1 - p / 100)
             nw, nh = int(w * keep), int(h * keep)
             x, y = (w - nw) // 2, (h - nh) // 2
             out = io.BytesIO()
@@ -117,26 +143,38 @@ class Camera:
         while not self._stop.is_set():
             with self._cv:
                 version, settings = self._version, self.settings.copy()
-            proc = subprocess.Popen(self.cmd(settings), stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+            proc = subprocess.Popen(
+                self.cmd(settings),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
             try:
                 for frame in jpeg_frames(proc.stdout):
                     if self._stop.is_set() or version != self._version:
                         break
                     cropped = self.crop(frame)
                     with self._cv:
-                        self.frame, self.frame_at, self.frame_id, self.error = cropped, time.time(), self.frame_id + 1, ""
+                        self.frame, self.frame_at, self.frame_id, self.error = (
+                            cropped,
+                            time.time(),
+                            self.frame_id + 1,
+                            "",
+                        )
                         self._cv.notify_all()
             except Exception as e:
-                with self._cv: self.error = str(e)
+                with self._cv:
+                    self.error = str(e)
             finally:
                 try:
                     os.killpg(proc.pid, signal.SIGTERM)
                     _, err = proc.communicate(timeout=1)
                     if err and not self._stop.is_set():
-                        with self._cv: self.error = err.decode("utf-8", "replace")[-1000:]
+                        with self._cv:
+                            self.error = err.decode("utf-8", "replace")[-1000:]
                 except Exception:
                     pass
-            time.sleep(.3)
+            time.sleep(0.3)
 
     def snapshot(self, timeout=5):
         end = time.time() + timeout
@@ -145,28 +183,12 @@ class Camera:
             while time.time() < end:
                 if self.frame and self.frame_at != seen:
                     return self.frame
-                self._cv.wait(max(.1, end - time.time()))
+                self._cv.wait(max(0.1, end - time.time()))
             return self.frame
 
     def latest(self):
         with self._cv:
             return self.frame, self.frame_at, self.frame_id
-
-    def gray_snapshot(self, timeout=5):
-        end = time.time() + timeout
-        while time.time() < end:
-            with self._cv:
-                frame, frame_at = self.frame, self.frame_at
-                if frame and frame_at != self._gray_source_at:
-                    break
-                self._cv.wait(min(.1, max(0, end - time.time())))
-        else:
-            return self.gray, self.gray_at
-        gray = self.make_gray(frame)
-        with self._cv:
-            if gray is not None and frame_at >= self._gray_source_at:
-                self.gray, self.gray_at, self._gray_source_at = gray, frame_at, frame_at
-            return self.gray, self.gray_at
 
     def frames(self):
         seen = 0

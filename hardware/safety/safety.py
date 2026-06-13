@@ -27,8 +27,3 @@ def enforce(robot) -> bool:
 
 def status() -> dict:
     return {"edge": _edge.last, "last_veto": _last_veto}
-
-
-def reset_edge():
-    """Clear edge detector history (call after repositioning robot)."""
-    _edge.reset()

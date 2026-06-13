@@ -1,7 +1,7 @@
 """Normalized object box, spatial, and label helpers."""
+
 from __future__ import annotations
 
-import math
 
 def num(v, default=0.0):
     try:
@@ -21,11 +21,6 @@ def clamp_box(raw):
     return [x1, y1, x2, y2]
 
 
-def center(box):
-    x1, y1, x2, y2 = box
-    return [(x1 + x2) / 2, (y1 + y2) / 2]
-
-
 def area(box):
     x1, y1, x2, y2 = box
     return max(0.0, x2 - x1) * max(0.0, y2 - y1)
@@ -40,21 +35,7 @@ def iou(a, b):
     return inter / union if union > 0 else 0.0
 
 
-def enrich_spatial(obj, hfov_deg=130.0):
-    box = clamp_box(obj.get("box"))
-    if not box:
-        return obj
-    cx, _ = center(box)
-    dist = 1 / math.sqrt(max(1e-6, area(box)))
-    return {
-        **obj,
-        "box": box,
-        "center": [round(cx, 4), round(center(box)[1], 4)],
-        "bearing_deg": round((cx - 0.5) * hfov_deg, 1),
-        "distance_proxy": round(dist, 2),
-    }
-
-
+# dynamically compute scores for detections, by age and label matching.
 def label_score(query, obj, prefer_visible=True):
     q, label = query.lower().strip(), obj["label"].lower().strip()
     base = 1.0 if q == label else 0.0

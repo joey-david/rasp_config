@@ -1,4 +1,5 @@
 """Layer 1 motion API: normalized movement primitives, no web/camera logic."""
+
 import os
 import argparse
 import select
@@ -45,7 +46,6 @@ class Motion:
 
         # last command time for watchdog, and last log time for status changes
         self._last_cmd = time.time()
-        self._last_log = 0
         self._watchdog_alive = 0.0
         self._idle_since = time.time()
         self._lock = threading.RLock()
@@ -59,17 +59,20 @@ class Motion:
         self.angular = (self.left - self.right) / 2
         self.speed = round(abs(self.linear), 1)
         self.direction = (
-            "forward" if self.linear > 0
-            else "reverse" if self.linear < 0
-            else "turning" if self.left or self.right
+            "forward"
+            if self.linear > 0
+            else "reverse"
+            if self.linear < 0
+            else "turning"
+            if self.left or self.right
             else "stopped"
         )
         self.turning = (
-            "right" if self.angular > 0
-            else "left" if self.angular < 0
-            else "not"
+            "right" if self.angular > 0 else "left" if self.angular < 0 else "not"
         )
-        self._idle_since = None if (self.left or self.right) else self._idle_since or time.time()
+        self._idle_since = (
+            None if (self.left or self.right) else self._idle_since or time.time()
+        )
 
     def tank(self, left: float, right: float) -> dict:
         """Drive the left and right motors immediately.
@@ -132,7 +135,9 @@ class Motion:
             time.sleep(0.1)
 
             with self._lock:
-                stale = self._last_cmd and time.time() - self._last_cmd > WATCHDOG_SECONDS
+                stale = (
+                    self._last_cmd and time.time() - self._last_cmd > WATCHDOG_SECONDS
+                )
                 moving = self.left or self.right
                 idle_release = (
                     RELEASE_IDLE_SECONDS > 0
@@ -161,7 +166,9 @@ class Motion:
                 "turning": self.turning,
                 "power": self.power,
                 "released": not backend.get("claimed", True),
-                "watchdog_alive": round(time.time() - self._watchdog_alive, 2) if self._watchdog_alive else None,
+                "watchdog_alive": round(time.time() - self._watchdog_alive, 2)
+                if self._watchdog_alive
+                else None,
                 "backend": backend,
             }
 
@@ -179,17 +186,17 @@ if __name__ == "__main__":
         for i in range(10):
             motion.set_velocity(-50, 0)
             time.sleep(0.1)
-            
+
         print("Turning right...")
         for i in range(10):
             motion.set_velocity(0, 50)
             time.sleep(0.1)
-            
+
         print("Turning left...")
         for i in range(10):
             motion.set_velocity(0, -50)
             time.sleep(0.1)
-        
+
         print("Stopping...")
         motion.stop()
     finally:

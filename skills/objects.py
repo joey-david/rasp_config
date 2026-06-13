@@ -6,6 +6,7 @@ import time
 SEARCH_SECONDS = 10.0
 
 
+# returns True if
 def is_pi_track(obj):
     return str(obj.get("source", "")).startswith("pi-")
 
@@ -47,6 +48,7 @@ class ObjectSkills:
             self.current["phase"] = "search-wait" if not allow_motion else "search-spin"
             if allow_motion:
                 self.robot.set_velocity(0, 30)
+            # obj is
             obj = self.robot.resolve_object(target, prefer_visible=True)
             if obj and is_pi_track(obj) and obj.get("quality", 0) >= 0.4:
                 self.robot.stop()

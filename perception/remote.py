@@ -1,4 +1,5 @@
 """Remote perception ingest from the PC visual cortex."""
+
 import time
 
 from mischief_common.object_geometry import label_score
@@ -13,39 +14,35 @@ class RemotePerception:
         self.stale_seconds = stale_seconds
         self.error = ""
 
-    @property
-    def detections(self):
-        return self.receiver.latest
-
-    @property
-    def tracks(self):
-        return []
-
-    def start(self):
-        pass
-
-    def stop(self):
-        pass
-
     def ingest(self, payload):
         _, detections = self.receiver.ingest(payload)
         self.error = ""
         return self.status()
 
     def is_fresh(self):
-        return bool(self.receiver.received_at and time.time() - self.receiver.received_at <= self.fresh_seconds)
+        return bool(
+            self.receiver.received_at
+            and time.time() - self.receiver.received_at <= self.fresh_seconds
+        )
 
     def best(self, query):
-        matches = [(label_score(query, {**d, "age": 0}), d) for d in self.receiver.latest]
-        matches = [(s, d) for s, d in matches if s > 0.45]
-        return max(matches, key=lambda x: (x[0], x[1].get("score", 0)))[1] if matches else None
-
-    def track(self, track_id):
-        return None
+        matches = [
+            (label_score(query, {**d, "age": 0}), d) for d in self.receiver.latest
+        ]
+        matches = [(s, d) for s, d in matches if s > 0.35]
+        return (
+            max(matches, key=lambda x: (x[0], x[1].get("score", 0)))[1]
+            if matches
+            else None
+        )
 
     def status(self):
         now = time.time()
-        age = None if not self.receiver.received_at else round(now - self.receiver.received_at, 3)
+        age = (
+            None
+            if not self.receiver.received_at
+            else round(now - self.receiver.received_at, 3)
+        )
         return {
             "detections": self.receiver.latest,
             "latest": self.receiver.latest,
