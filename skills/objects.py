@@ -1,4 +1,5 @@
 """Layer 2 object skills: target resolution and non-actuating servo prototypes."""
+
 from dataclasses import asdict, dataclass
 import time
 
@@ -45,13 +46,13 @@ class ObjectSkills:
         while time.time() < end:
             self.current["phase"] = "search-wait" if not allow_motion else "search-spin"
             if allow_motion:
-                self.robot.set_velocity(0, 18)
+                self.robot.set_velocity(0, 30)
             obj = self.robot.resolve_object(target, prefer_visible=True)
             if obj and is_pi_track(obj) and obj.get("quality", 0) >= 0.4:
                 self.robot.stop()
                 self.current["phase"] = "found"
                 return obj
-            time.sleep(0.2)
+            time.sleep(0.1)
 
         self.robot.stop()
         return self.robot.resolve_object(target, prefer_visible=False) or best
@@ -94,8 +95,14 @@ class ObjectSkills:
         centered = max(0, 1 - abs(error) * 2)
         base = 10 if cautious else 18
         return ServoDecision(
-            phase="done" if close else "centering" if abs(error) > 0.15 else "approaching",
-            linear=0 if close or abs(error) > 0.35 else round(base * centered * max(0.2, quality), 1),
+            phase="done"
+            if close
+            else "centering"
+            if abs(error) > 0.15
+            else "approaching",
+            linear=0
+            if close or abs(error) > 0.35
+            else round(base * centered * max(0.2, quality), 1),
             angular=round(error * 40, 1),
             stop_reason="close" if close else None,
         )

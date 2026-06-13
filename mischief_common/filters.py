@@ -8,14 +8,39 @@ but are skipped by skills.
 # Labels that are structural environment — never actionable targets.
 # Keep the full detector vocabulary; this only gates skill use.
 ENVIRONMENTAL: set[str] = {
-    "wall", "floor", "ceiling", "door", "window",
-    "curtain", "blind", "carpet", "rug", "mat",
-    "stairs", "step", "ledge", "edge", "obstacle",
-    "baseboard", "outlet", "switch",
-    "light", "lamp", "ceiling fan", "chandelier",
-    "cabinet", "shelf", "drawer", "handle",
-    "mirror", "clock",
-    "sink", "toilet", "bathtub", "faucet", "shower",
+    "wall",
+    "floor",
+    "ceiling",
+    "door",
+    "window",
+    "curtain",
+    "blind",
+    "carpet",
+    "rug",
+    "mat",
+    "stairs",
+    "step",
+    "ledge",
+    "edge",
+    "obstacle",
+    "baseboard",
+    "outlet",
+    "switch",
+    "light",
+    "lamp",
+    "ceiling fan",
+    "chandelier",
+    "cabinet",
+    "shelf",
+    "drawer",
+    "handle",
+    "mirror",
+    "clock",
+    "sink",
+    "toilet",
+    "bathtub",
+    "faucet",
+    "shower",
     "towel",  # usually hanging, not a target
 }
 
@@ -28,8 +53,3 @@ def is_environmental(label: str) -> bool:
 def filter_actionable(detections: list[dict]) -> list[dict]:
     """Return only non-environmental detections."""
     return [d for d in detections if not is_environmental(d.get("label", ""))]
-
-
-def tag_all(detections: list[dict]) -> list[dict]:
-    """Add 'environmental' flag to each detection. Does not remove any."""
-    return [{**d, "environmental": is_environmental(d.get("label", ""))} for d in detections]
