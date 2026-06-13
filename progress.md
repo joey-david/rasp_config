@@ -57,4 +57,4 @@ Semantic matcher for closest COCO target (will be useful for LLM parsing/matchin
 ## June 13th
 
 Added odometry folder for hyper-low-latency on-device visual speed estimation.
-Important: established that the operative range for turning is 30-45: under 30 has too much friction, above 50 can't capture angular speed meaninfully - only use for _EMOTES_.
+Important: established that the operative range for turning is 30-45: under 30 has too much friction, above 50 can't capture angular speed meaninfully - only use for _EMOTES_. Added emotes. Emergent find behavior in find_odometry.
