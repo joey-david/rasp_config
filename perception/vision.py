@@ -1,4 +1,5 @@
 """Reusable Pi-side vision helpers backed by the PC detector."""
+from contextlib import contextmanager
 import json
 import os
 import threading
@@ -8,6 +9,9 @@ import urllib.request
 
 DETECT_URL = os.getenv("PC_DETECT_URL", "http://192.168.0.24:8081/detect")
 VISION_HZ = float(os.getenv("VISION_HZ", "4"))
+
+
+_INFERENCE_LOCK = threading.RLock()
 
 
 def box_center_x(box):
@@ -81,14 +85,16 @@ def _ingest(robot, out, timing, source):
 
 def detect(robot, target, timeout=0.45, detect_url=DETECT_URL):
     url = detect_url + "?" + urllib.parse.urlencode({"label": target})
-    out, timing, error = _post_frame(robot, url, timeout)
+    with _INFERENCE_LOCK:
+        out, timing, error = _post_frame(robot, url, timeout)
     if error:
         return [], error
     return _ingest(robot, out, timing, "pc-detect-request")
 
 
 def detect_all(robot, timeout=0.8, detect_url=DETECT_URL):
-    out, timing, error = _post_frame(robot, _all_url(detect_url), timeout)
+    with _INFERENCE_LOCK:
+        out, timing, error = _post_frame(robot, _all_url(detect_url), timeout)
     if error:
         return [], error
     return _ingest(robot, out, timing, "pc-detect-all")
@@ -106,6 +112,30 @@ class VisionScanner:
         self.timeout = timeout
         self._stop = threading.Event()
         self._thread = None
+        self._pause_lock = threading.Lock()
+        self._pause_count = 0
+
+    @contextmanager
+    def exclusive(self):
+        """Pause background scanning while an active skill owns perception."""
+        with self._pause_lock:
+            self._pause_count += 1
+            outermost = self._pause_count == 1
+        if outermost:
+            print("[perception] active skill acquired exclusive inference", flush=True)
+        try:
+            with _INFERENCE_LOCK:
+                yield
+        finally:
+            with self._pause_lock:
+                self._pause_count -= 1
+                resumed = self._pause_count == 0
+            if resumed:
+                print("[perception] background scanner resumed", flush=True)
+
+    def _paused(self):
+        with self._pause_lock:
+            return self._pause_count > 0
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -120,6 +150,9 @@ class VisionScanner:
     def _run(self):
         period = 1 / self.hz
         while not self._stop.is_set():
+            if self._paused():
+                self._stop.wait(0.05)
+                continue
             started = time.time()
             try:
                 detect_all(self.robot, timeout=self.timeout)
