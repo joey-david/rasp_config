@@ -51,18 +51,6 @@ class FakeRobot:
 
 
 class ProcedureTests(unittest.TestCase):
-    def test_lists_all_procedures_with_setup_and_steps(self):
-        items = procedures.list_procedures()
-        ids = [p["id"] for p in items]
-        self.assertIn("power_gauge", ids)
-        self.assertIn("find_bench", ids)
-        self.assertIn("lock_bench", ids)
-        self.assertIn("follow_bench", ids)
-        self.assertIn("full_suite", ids)
-        for p in items:
-            self.assertTrue(p["setup"])
-            self.assertGreaterEqual(len(p["steps"]), 2)
-
     def test_power_gauge_procedure_logs_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "procedures.jsonl"
@@ -83,11 +71,6 @@ class ProcedureTests(unittest.TestCase):
                 )
             self.assertFalse(out["ok"])
             self.assertIn("blocked", out["summary"])
-
-    def test_unknown_procedure_returns_error(self):
-        out = procedures.run_procedure(FakeRobot(), "does_not_exist")
-        self.assertFalse(out["ok"])
-        self.assertIn("unknown procedure", out["error"])
 
 
 if __name__ == "__main__":

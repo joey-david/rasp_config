@@ -96,35 +96,6 @@ class PowerGaugeTests(unittest.TestCase):
             self.assertEqual(reloaded.min_turn, 32.0)
             self.assertEqual(reloaded.status()["source"], "ramp-calibration")
 
-    def test_three_stalls_bump_power_until_motion_works_and_remembers(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "power_gauge.json"
-            gauge = PowerGauge(path=path, min_turn=30.0, stall_limit=3, bump_step=4.0)
-
-            # First two stalls keep the current floor.
-            self.assertIsNone(gauge.observe_pulse("turn", 30.0, 0.02, True)["bumped_to"])
-            self.assertIsNone(gauge.observe_pulse("turn", 30.0, 0.03, True)["bumped_to"])
-            self.assertEqual(gauge.min_turn, 30.0)
-
-            # Third stall bumps to 34% and enters recovery mode.
-            third = gauge.observe_pulse("turn", 30.0, 0.02, True)
-            self.assertEqual(third["bumped_to"], 34.0)
-            self.assertTrue(third["recovering"])
-
-            # Still stalled at 34% -> bumps immediately on the next pulse to 38%.
-            fourth = gauge.observe_pulse("turn", 34.0, 0.04, True)
-            self.assertEqual(fourth["bumped_to"], 38.0)
-
-            self.assertFalse(path.exists())
-            self.assertEqual(gauge.min_forward, 35.0)
-
-            # Moves at 38% -> exits recovery and persists 38%.
-            fifth = gauge.observe_pulse("turn", 38.0, 2.4, True)
-            self.assertTrue(fifth["moved"])
-            self.assertFalse(fifth["recovering"])
-            saved = json.loads(path.read_text())
-            self.assertEqual(saved["min_turn"], 38.0)
-
     def test_timed_velocity_triggers_auto_bump_after_three_failed_turns(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "power_gauge.json"
@@ -134,22 +105,25 @@ class PowerGaugeTests(unittest.TestCase):
 
             for _ in range(5):
                 lo, _ = robot.movement.turn_bounds()
+                self.assertFalse(path.exists())
                 timed_velocity(robot, stop, 0, lo, 0.09, "test-turn")
 
             # Three stalls at 26 -> bumps to 30; stall at 30 -> bumps to 34; moves at 34.
             sent = [cmd[1] for cmd in robot.movement.commands]
             self.assertEqual(sent, [26.0, 26.0, 26.0, 30.0, 34.0])
+            self.assertEqual(json.loads(path.read_text())["min_turn"], 34.0)
+            self.assertEqual(gauge.min_forward, 35.0)
             self.assertEqual(gauge.min_turn, 34.0)
             self.assertEqual(gauge.status()["stall_streak"]["turn"], 0)
             self.assertFalse(gauge.status()["recovering"]["turn"])
 
-    def test_sub_floor_command_never_bumps_power(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            gauge = PowerGauge(path=Path(tmp) / "gauge.json", min_turn=35.0, stall_limit=3)
-            for _ in range(5):
-                out = gauge.observe_pulse("turn", 10.0, 0.0, fresh=True)
-                self.assertTrue(out["ignored"])
-            self.assertEqual(gauge.min_turn, 35.0)
+    def test_unreliable_stall_samples_do_not_raise_floor(self):
+        for power, fresh in [(10.0, True), (35.0, False)]:
+            with self.subTest(power=power, fresh=fresh):
+                gauge = PowerGauge(path=None, min_turn=35.0)
+                for _ in range(gauge.stall_limit + 1):
+                    self.assertTrue(gauge.observe_pulse("turn", power, 0.0, fresh)["ignored"])
+                self.assertEqual(gauge.min_turn, 35.0)
 
     def test_same_sign_scene_motion_is_rejected_by_calibrate(self):
         class SceneDriftOdo(FakeOdometry):
@@ -168,14 +142,6 @@ class PowerGaugeTests(unittest.TestCase):
             )
             self.assertTrue(out["ok"])
             self.assertEqual(out["breakaway_turn"], 30.0)
-
-    def test_unfresh_odometry_does_not_falsely_bump_power(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            gauge = PowerGauge(path=Path(tmp) / "gauge.json", min_turn=35.0, stall_limit=3)
-            for _ in range(5):
-                out = gauge.observe_pulse("turn", 35.0, 0.0, fresh=False)
-                self.assertTrue(out["ignored"])
-            self.assertEqual(gauge.min_turn, 35.0)
 
 
 if __name__ == "__main__":
