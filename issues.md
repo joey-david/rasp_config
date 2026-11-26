@@ -14,7 +14,7 @@
 
 ## L2 — Tracking and contact
 
-- [ ] Follow and lock-on can keep turning away after the target crosses center.
+- [x] Follow and lock-on issued wrong-side turns after a detected center crossing (fixed in offline replay).
 - [ ] Follow can act on an old detection without checking its age at motor start.
 - [ ] Lock-on ignores the requested track ID and can switch between same-label targets.
 - [ ] Follow reports requested motion even when edge safety vetoes it.
