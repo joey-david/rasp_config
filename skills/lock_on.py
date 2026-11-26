@@ -4,10 +4,15 @@ import threading
 import time
 
 from perception.vision import DETECT_URL, box_center_x, detect_target, resolve_label
-from skills.runtime import VisualTurnController, timed_velocity
+from skills.runtime import (
+    centering_turn,
+    VisualTurnController,
+    timed_velocity,
+    turn_bounds,
+    turn_pulse_seconds,
+)
 from skills.tuning import (
     TURN_DEADBAND,
-    TURN_KP,
     TURN_MAX,
     TURN_MIN,
     TURN_STOP_DEADBAND,
@@ -15,7 +20,6 @@ from skills.tuning import (
 
 _stop = threading.Event()
 _status = {"running": False}
-CONTROL_PULSE_SECONDS = 0.08
 
 
 def lock_on(
@@ -23,11 +27,11 @@ def lock_on(
     target="person",
     track_id=None,
     hz=12,
-    kp=TURN_KP,
+    kp=0.0,
     deadband=TURN_DEADBAND,
     stop_deadband=TURN_STOP_DEADBAND,
-    min_turn=TURN_MIN,
-    max_turn=TURN_MAX,
+    min_turn=None,
+    max_turn=None,
     detect_timeout=0.45,
     cycles=0,
 ):
@@ -35,7 +39,7 @@ def lock_on(
     _stop.clear()
     period = 1 / max(1, float(hz))
     cx, loop = 0.5, 0
-    steering = VisualTurnController(stop_deadband)
+    steering = VisualTurnController(stop_deadband, alpha=0.72)
     try:
         target_label, resolve_meta = resolve_label(target)
     except Exception as e:
@@ -58,37 +62,42 @@ def lock_on(
                 except Exception as e:
                     det, meta = None, {"error": str(e)}
                 if not det:
-                    robot.movement.set_velocity(0, 0, source="lock-on")
+                    steering = VisualTurnController(stop_deadband, alpha=0.72)
+                    robot.movement.stop(source="lock-on")
                     _status = {
                         "running": True,
                         "target": target,
                         "label": target_label,
                         "seen": False,
+                        "box": None,
                         "turn": 0,
                         **resolve_meta,
                         **meta,
                     }
-                    time.sleep(max(0, period - (time.time() - started)))
+                    _stop.wait(max(0, period - (time.time() - started)))
                     continue
                 z = box_center_x(det["box"])
                 raw_err = z - 0.5
                 cx = z
+                cur_min, cur_max = turn_bounds(robot, TURN_MIN, TURN_MAX)
+                lo_turn = cur_min if min_turn is None else min_turn
+                hi_turn = cur_max if max_turn is None else max_turn
                 err, turn_allowed = steering.update(raw_err)
-                turn = (
-                    robot.movement.turn(
-                        err, kp, deadband, stop_deadband, min_turn, max_turn
+                turn = 0.0
+                if turn_allowed and abs(raw_err) > deadband:
+                    turn = centering_turn(err, lo_turn, hi_turn, stop_deadband, kp)
+                if turn:
+                    timed_velocity(
+                        robot,
+                        _stop,
+                        0,
+                        turn,
+                        turn_pulse_seconds(raw_err),
+                        "lock-on",
+                        settle_seconds=0.05,
                     )
-                    if turn_allowed
-                    else 0.0
-                )
-                timed_velocity(
-                    robot,
-                    _stop,
-                    0,
-                    turn,
-                    CONTROL_PULSE_SECONDS,
-                    "lock-on",
-                )
+                else:
+                    robot.movement.stop(source="lock-on")
                 _status = {
                     "running": True,
                     "target": target,
@@ -102,7 +111,7 @@ def lock_on(
                     "turn": round(turn, 1),
                     "turn_reversal_held": not turn_allowed,
                     "stop_deadband": stop_deadband,
-                    "min_turn": min_turn,
+                    "min_turn": lo_turn,
                     **resolve_meta,
                     **meta,
                 }

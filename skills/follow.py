@@ -5,6 +5,7 @@ import time
 
 from perception.vision import DETECT_URL, box_center_x, detect_target, resolve_label
 from skills.runtime import (
+    centering_turn,
     SkillStatus,
     VisualTurnController,
     forward_bounds,
@@ -16,7 +17,6 @@ from skills.tuning import (
     FORWARD_MAX,
     FORWARD_MIN,
     TURN_DEADBAND,
-    TURN_KP,
     TURN_MAX,
     TURN_MIN,
     TURN_STOP_DEADBAND,
@@ -24,15 +24,7 @@ from skills.tuning import (
 
 DEFAULT_HZ = 10
 TARGET_HEIGHT = 0.68
-STOP_HEIGHT = 0.82
-LINEAR_KP = 50
-MIN_LINEAR = FORWARD_MIN
-MAX_LINEAR = FORWARD_MAX
-STEER_KP = 60
-STEER_DEADBAND = 0.03
-MAX_STEER_TRIM = 9.0
 PIVOT_DEADBAND = 0.22
-FORWARD_DEADBAND = PIVOT_DEADBAND
 
 _stop = threading.Event()
 _state = SkillStatus({"running": False})
@@ -43,19 +35,11 @@ def _height(det):
     return max(0.0, float(box[3]) - float(box[1]))
 
 
-def _linear(box_height, offset, min_linear=MIN_LINEAR, max_linear=MAX_LINEAR):
-    if box_height >= STOP_HEIGHT or abs(offset) > PIVOT_DEADBAND:
+def _linear(box_height, offset, min_linear=FORWARD_MIN, max_linear=FORWARD_MAX):
+    if box_height >= TARGET_HEIGHT or abs(offset) > PIVOT_DEADBAND:
         return 0.0
-    cmd = (TARGET_HEIGHT - box_height) * LINEAR_KP
-    if cmd <= 0:
-        return 0.0
-    return min(max_linear, max(min_linear, cmd))
-
-
-def _steer_trim(offset):
-    if abs(offset) <= STEER_DEADBAND:
-        return 0.0
-    return max(-MAX_STEER_TRIM, min(MAX_STEER_TRIM, float(offset) * STEER_KP))
+    distance = 1 - max(0.0, box_height) / TARGET_HEIGHT
+    return min_linear + distance * (max_linear - min_linear)
 
 
 def follow(
@@ -81,7 +65,7 @@ def follow(
         label=label,
         detector=DETECT_URL,
         target_height=TARGET_HEIGHT,
-        stop_height=STOP_HEIGHT,
+        stop_height=TARGET_HEIGHT,
         **resolve_meta,
     )
     loop, cx = 0, 0.5
@@ -125,27 +109,14 @@ def follow(
                 offset, turn_allowed = steering.update(raw_offset)
                 box_height = _height(det)
                 min_turn, max_turn = turn_bounds(robot, TURN_MIN, TURN_MAX)
-                min_fwd, max_fwd = forward_bounds(robot, MIN_LINEAR, MAX_LINEAR)
+                min_fwd, max_fwd = forward_bounds(robot, FORWARD_MIN, FORWARD_MAX)
                 base_linear = _linear(box_height, raw_offset, min_fwd, max_fwd)
                 need_pivot = abs(raw_offset) > PIVOT_DEADBAND or (
                     base_linear == 0.0 and abs(raw_offset) > TURN_DEADBAND
                 )
                 if need_pivot:
                     linear = 0.0
-                    turn = (
-                        robot.movement.turn(
-                            offset,
-                            TURN_KP,
-                            TURN_DEADBAND,
-                            TURN_STOP_DEADBAND,
-                            min_turn,
-                            max_turn,
-                        )
-                        if turn_allowed
-                        else 0.0
-                    )
-                    if turn and abs(turn) < min_turn:
-                        turn = min_turn if turn > 0 else -min_turn
+                    turn = centering_turn(offset, min_turn, max_turn, TURN_STOP_DEADBAND) if turn_allowed else 0.0
                     if turn:
                         result = timed_velocity(
                             robot,
@@ -161,10 +132,9 @@ def follow(
                         result = None
                 elif base_linear > 0.0:
                     # Keep both wheels >= min_fwd while smoothly steering toward center.
-                    trim = _steer_trim(raw_offset)
-                    max_trim = max(0.0, min(MAX_STEER_TRIM, max_fwd - min_fwd))
-                    turn = max(-max_trim, min(max_trim, trim))
-                    linear = min(max_fwd, max(base_linear, min_fwd + abs(turn)))
+                    span = (max_fwd - min_fwd) / 2
+                    turn = span * raw_offset / PIVOT_DEADBAND if abs(raw_offset) > TURN_DEADBAND else 0.0
+                    linear = min(max_fwd - abs(turn), max(base_linear, min_fwd + abs(turn)))
                     result = robot.movement.set_velocity(linear, turn, source="follow")
                 else:
                     linear = turn = 0.0

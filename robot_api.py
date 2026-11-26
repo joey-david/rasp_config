@@ -9,6 +9,7 @@ from perception.camera import Camera
 from perception.odometry.runtime import RobotOdometry
 from perception.remote import RemotePerception
 from perception.vision import VisionScanner
+from skills.runtime import centering_turn
 from skills import emotes
 from skills.objects import ObjectSkills
 
@@ -26,16 +27,9 @@ class SkillMovement:
         return max(lo, min(hi, float(x)))
 
     def turn(self, err, kp, deadband, stop_deadband, min_turn, max_turn):
-        cmd = kp * err
-        if abs(err) <= stop_deadband:
+        if abs(err) <= max(deadband, stop_deadband):
             return 0.0
-        if abs(cmd) < min_turn:
-            span = max(0.001, deadband - stop_deadband)
-            boost = self.clamp((abs(err) - stop_deadband) / span, 0.0, 1.0)
-            floor = min_turn * boost
-            if abs(cmd) < floor:
-                cmd = floor if (cmd or err) > 0 else -floor
-        return self.clamp(cmd, -max_turn, max_turn)
+        return centering_turn(err, min_turn, max_turn)
 
     def with_stuck_bonus(self, turn, err, bonus, max_turn):
         if not turn or not bonus:

@@ -9,6 +9,7 @@ from perception.vision import (
     resolve_label,
 )
 from skills.runtime import (
+    centering_turn,
     SkillStatus,
     integer,
     number,
@@ -18,10 +19,8 @@ from skills.runtime import (
 )
 from skills.tuning import (
     TURN_DEADBAND,
-    TURN_KP,
     TURN_MAX,
     TURN_MIN,
-    TURN_STOP_DEADBAND,
 )
 
 TURN_SECONDS = 0.3
@@ -100,14 +99,7 @@ def _center(robot, target, label, det, cx, timeout):
             )
             return best, True
         min_turn, max_turn = turn_bounds(robot, TURN_MIN, TURN_MAX)
-        turn = robot.movement.turn(
-            err,
-            TURN_KP,
-            CENTER_DEADBAND,
-            TURN_STOP_DEADBAND,
-            min_turn,
-            max_turn,
-        )
+        turn = centering_turn(err, min_turn, max_turn)
         _state.update(
             phase="center",
             target=target,
@@ -115,10 +107,10 @@ def _center(robot, target, label, det, cx, timeout):
             center_cycle=cycle,
             offset=round(err, 4),
             turn=round(turn, 1),
-            centered=turn == 0,
+            centered=False,
         )
         if turn == 0:
-            return best, True
+            return best, False
         pulse = turn_pulse_seconds(err)
         print(
             f"[find] center {cycle}/{CENTER_CYCLES}: offset={err:.3f} "

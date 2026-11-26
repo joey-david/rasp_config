@@ -21,8 +21,16 @@ def forward_bounds(robot, default_min=FORWARD_MIN, default_max=FORWARD_MAX):
     return float(default_min), float(default_max)
 
 
+def centering_turn(error, floor, cap, deadband=0.0, gain=0.0):
+    """Use the breakaway duty for a pivot. Pulse duration sets its travel."""
+    if abs(error) <= deadband:
+        return 0.0
+    power = min(cap, max(floor, gain * abs(error)))
+    return power if error > 0 else -power
+
+
 def turn_pulse_seconds(error, spinup_s=0.055, gain=0.55, min_s=0.085, max_s=0.22):
-    """Compensate motor static-friction spin-up (~55 ms) with damped duration gain so turns never overshoot."""
+    """Leave time for spin-up and shorten the pulse near center."""
     raw = float(spinup_s) + abs(float(error)) * float(gain)
     return round(max(float(min_s), min(float(max_s), raw)), 3)
 
