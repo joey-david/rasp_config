@@ -147,10 +147,8 @@ class Motion:
                 if idle_release:
                     self.backend.close()
                     self._idle_since = time.time()
-                if not stale or not moving:
-                    continue
-
-            self.stop()
+                if stale and moving:
+                    self.stop()
 
     def status(self) -> dict:
         """Return detailed motion and backend state."""

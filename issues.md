@@ -9,7 +9,7 @@
 - [ ] Equal wheel commands appear to produce unequal travel.
 - [ ] Battery charge changes wheel response, making timed moves and emotes inconsistent.
 - [ ] Mixing forward and turn commands can leave one wheel below its starting duty (forward 40, turn 35 gives 70/5 after clipping).
-- [ ] The watchdog can stop a fresh command arriving between its timeout check and stop.
+- [x] Watchdog could stop a fresh command after its timeout check (fixed and replayed offline).
 - [ ] UDP drive commands can override an active skill without acquiring motor control.
 
 ## L2 — Tracking and contact
