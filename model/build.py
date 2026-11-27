@@ -334,7 +334,7 @@ def electronics():
         bar("Anker battery", "led", (-24 + j * 3, 83, 31), (-24 + j * 3, 83, 32), 0.78)
     for j, z in enumerate([-14, 10]):
         n = ["Pi power cable", "Motor power cable"][j]
-        block(n, "seam", (-50, 87, z), (10, 6.5, 13))
+        block(n, "seam", (-52.5, 87, z), (10, 6.5, 13))
         # Drop past the rim at either end of the tire's swept volume.
         if j == 0:
             points = [
@@ -437,7 +437,7 @@ def electronics():
         if j:
             faces.extend([(2 * j - 2, 2 * j - 1, 2 * j), (2 * j, 2 * j - 1, 2 * j + 1)])
     put("CSI ribbon", "white", tm.Trimesh(verts, faces))
-    block("CSI ribbon", "blue", (5, 92, 33), (16, 4, 0.8))
+    block("CSI ribbon", "blue", (5, 91, 33), (16, 4, 0.8))
     n = "TB6612FNG driver"
     block(n, "red", (6, 52, -57), (24, 20, 1.6))
     block(n, "ink", (6, 52, -58.5), (7, 7, 1.8))
