@@ -14,11 +14,15 @@ Environment=CAMERA_FPS=30
 Environment=MOTION_UDP_PORT=8766
 Environment=MOTOR_POWER=70
 Environment=MOTOR_PWM_FREQ=1000
-Environment=MOTOR_RAMP_SECONDS=0.05
-Environment=PC_DETECT_URL=http://192.168.0.24:8081/detect
+Environment=MOTOR_WATCHDOG_SECONDS=0.75
+Environment=PC_DETECT_URL=http://Joeys-MacBook-Air.local:8081/detect
+Environment=MAX_DETECT_IMGSZ=1920
+Environment=VLM_PLANNER_URL=http://Joeys-MacBook-Air.local:8090/plan
+Environment=AUTONOMY_ALLOW_CONTACT=0
+Environment=EDGE_SAFETY_ENABLED=1
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 -u /home/joey/web/web_interface.py
-Restart=on-failure
+Restart=always
 RestartSec=3
 
 [Install]

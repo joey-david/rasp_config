@@ -1,6 +1,11 @@
 """Raw camera service: rpicam process, MJPEG frames, snapshots."""
 
-import io, os, signal, subprocess, threading, time
+import io
+import os
+import signal
+import subprocess
+import threading
+import time
 from PIL import Image
 
 try:
@@ -13,10 +18,14 @@ WIDTH = int(os.getenv("CAMERA_WIDTH", 1296))
 HEIGHT = int(os.getenv("CAMERA_HEIGHT", 972))
 FPS = int(os.getenv("CAMERA_FPS", 30))
 MODE = os.getenv("CAMERA_MODE", "").strip()
+STILL_WIDTH = int(os.getenv("CAMERA_STILL_WIDTH", "2592"))
+STILL_HEIGHT = int(os.getenv("CAMERA_STILL_HEIGHT", "1944"))
+STILL_TIMEOUT_MS = int(os.getenv("CAMERA_STILL_TIMEOUT_MS", "500"))
 GRAY_SIZE = (
-    int(os.getenv("CAMERA_GRAY_WIDTH", WIDTH)),
-    int(os.getenv("CAMERA_GRAY_HEIGHT", HEIGHT)),
+    int(os.getenv("CAMERA_GRAY_WIDTH", "320")),
+    int(os.getenv("CAMERA_GRAY_HEIGHT", "240")),
 )
+GRAY_HZ = float(os.getenv("CAMERA_GRAY_HZ", "15"))
 
 
 def clamp(v, lo, hi, default):
@@ -62,8 +71,12 @@ class Camera:
             "crop": 0,
         }
         self.frame, self.frame_at, self.frame_id, self.error = None, 0, 0, ""
+        self.maximum_size = f"{STILL_WIDTH}x{STILL_HEIGHT}"
         self.gray, self.gray_at, self._gray_source_at = None, 0, 0
         self._version = 0
+        self._proc = None
+        self._capture_active = False
+        self._capture_lock = threading.Lock()
         self._cv = threading.Condition()
         self._stop = threading.Event()
 
@@ -142,6 +155,8 @@ class Camera:
     def _worker(self):
         while not self._stop.is_set():
             with self._cv:
+                while self._capture_active and not self._stop.is_set():
+                    self._cv.wait(1)
                 version, settings = self._version, self.settings.copy()
             proc = subprocess.Popen(
                 self.cmd(settings),
@@ -149,18 +164,28 @@ class Camera:
                 stderr=subprocess.PIPE,
                 start_new_session=True,
             )
+            with self._cv:
+                self._proc = proc
             try:
                 for frame in jpeg_frames(proc.stdout):
                     if self._stop.is_set() or version != self._version:
                         break
                     cropped = self.crop(frame)
+                    now = time.time()
+                    gray = None
+                    if now - self._gray_source_at >= 1 / max(1.0, GRAY_HZ):
+                        gray = self.make_gray(cropped)
                     with self._cv:
                         self.frame, self.frame_at, self.frame_id, self.error = (
                             cropped,
-                            time.time(),
+                            now,
                             self.frame_id + 1,
                             "",
                         )
+                        if gray is not None:
+                            self.gray = gray
+                            self.gray_at = now
+                            self._gray_source_at = now
                         self._cv.notify_all()
             except Exception as e:
                 with self._cv:
@@ -169,22 +194,95 @@ class Camera:
                 try:
                     os.killpg(proc.pid, signal.SIGTERM)
                     _, err = proc.communicate(timeout=1)
-                    if err and not self._stop.is_set():
+                    with self._cv:
+                        expected_restart = self._capture_active or version != self._version
+                    if err and not self._stop.is_set() and not expected_restart:
                         with self._cv:
                             self.error = err.decode("utf-8", "replace")[-1000:]
                 except Exception:
                     pass
+                with self._cv:
+                    if self._proc is proc:
+                        self._proc = None
+                    self._cv.notify_all()
             time.sleep(0.3)
 
-    def snapshot(self, timeout=5):
+    def snapshot_with_meta(self, timeout=5, after_frame_id=None):
         end = time.time() + timeout
         with self._cv:
-            seen = self.frame_at
+            seen = self.frame_id if after_frame_id is None else int(after_frame_id)
             while time.time() < end:
-                if self.frame and self.frame_at != seen:
-                    return self.frame
+                if self.frame and self.frame_id > seen:
+                    return self.frame, self.frame_at, self.frame_id
                 self._cv.wait(max(0.1, end - time.time()))
-            return self.frame
+            return self.frame, self.frame_at, self.frame_id
+
+    def snapshot(self, timeout=5):
+        return self.snapshot_with_meta(timeout)[0]
+
+    def maximum_snapshot(self, timeout=8):
+        """Capture a full-sensor still; fall back to the stream frame off-Pi."""
+        with self._capture_lock:
+            with self._cv:
+                self._capture_active = True
+                self._version += 1
+                proc = self._proc
+            if proc:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
+                with self._cv:
+                    end = time.time() + 2
+                    while self._proc is proc and time.time() < end:
+                        self._cv.wait(0.05)
+            cmd = [
+                "rpicam-still",
+                "-n",
+                "--encoding",
+                "jpg",
+                "--width",
+                str(STILL_WIDTH),
+                "--height",
+                str(STILL_HEIGHT),
+                "--quality",
+                "95",
+                "--timeout",
+                str(STILL_TIMEOUT_MS),
+                "--output",
+                "-",
+            ]
+            if self.settings["hflip"]:
+                cmd += ["--hflip"]
+            if self.settings["vflip"]:
+                cmd += ["--vflip"]
+            try:
+                out = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout,
+                    check=True,
+                ).stdout
+                if out:
+                    out = self.crop(out)
+                    with self._cv:
+                        self.frame_at = time.time()
+                        self.frame_id += 1
+                        return out, self.frame_at, self.frame_id
+            except Exception as e:
+                with self._cv:
+                    self.error = f"maximum snapshot failed: {e}"
+            finally:
+                with self._cv:
+                    self._capture_active = False
+                    self._cv.notify_all()
+        frame, frame_at, frame_id = self.latest()
+        if not frame:
+            with self._cv:
+                self.error = self.error or "maximum snapshot failed: no fallback frame"
+        return frame, frame_at, frame_id
 
     def latest(self):
         with self._cv:
@@ -209,4 +307,5 @@ class Camera:
             "gray": bool(self.gray_at),
             "error": self.error,
             "size": f"{WIDTH}x{HEIGHT}",
+            "maximum_size": self.maximum_size,
         }

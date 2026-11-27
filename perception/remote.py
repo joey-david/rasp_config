@@ -27,7 +27,7 @@ class RemotePerception:
 
     def best(self, query):
         matches = [
-            (label_score(query, {**d, "age": 0}), d) for d in self.receiver.latest
+            (label_score(query, d), d) for d in self.receiver.current()
         ]
         matches = [(s, d) for s, d in matches if s > 0.35]
         return (
@@ -38,14 +38,15 @@ class RemotePerception:
 
     def status(self):
         now = time.time()
+        current = self.receiver.current(now)
         age = (
             None
             if not self.receiver.received_at
             else round(now - self.receiver.received_at, 3)
         )
         return {
-            "detections": self.receiver.latest,
-            "latest": self.receiver.latest,
+            "detections": current,
+            "latest": current,
             "tracks": [],
             "map": self.receiver.map,
             "age": age,

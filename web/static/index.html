@@ -1,56 +1,160 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Robot Driver</title>
+<title>Mischief Bot</title>
 <link rel="stylesheet" href="/static/style.css">
 
-<img id="stream" class="stream" src="/stream.mjpg">
+<img id="stream" class="stream" src="/stream.mjpg" alt="Robot camera stream">
 <canvas id="overlay"></canvas>
 <div class="shade"></div>
 
-<div class="hud" aria-label="drive state">
-  <div class="wasd">
-    <div id="mode" class="mode">idle</div>
-    <span></span><span id="hw" class="key">W</span><span></span>
-    <span id="ha" class="key">A</span><span id="hs" class="key">S</span><span id="hd" class="key">D</span>
+<header class="topbar">
+  <div class="hud" aria-label="drive state">
+    <div class="wasd" aria-hidden="true">
+      <div id="mode" class="mode">idle</div>
+      <span></span><span id="hw" class="key">W</span><span></span>
+      <span id="ha" class="key">A</span><span id="hs" class="key">S</span><span id="hd" class="key">D</span>
+    </div>
+
+    <div class="telemetry">
+      <div class="metric">
+        <span class="label">Wheels</span>
+        <span class="value mono"><span id="left">0%</span><span class="sep">/</span><span id="right">0%</span></span>
+      </div>
+      <div class="metric">
+        <span class="label">Floor</span>
+        <span id="minPower" class="value mono">35%</span>
+      </div>
+      <div class="metric">
+        <span class="label">Yaw</span>
+        <span id="odo" class="value mono">0.00 rad/s</span>
+      </div>
+      <div class="metric metric-vision">
+        <span class="label"><span id="visionDot" class="dot"></span>Vision</span>
+        <span id="vision" class="value mono">waiting</span>
+      </div>
+    </div>
   </div>
 
-  <div class="hud-panel">
-    <span class="stat"><span class="label">Left</span><span id="left" class="value">0%</span></span>
-    <span class="stat"><span class="label">Right</span><span id="right" class="value">0%</span></span>
-    <span class="stat wide"><span class="label">Odo rot</span><span id="odo" class="value">0.00 rad/s</span></span>
-    <span class="stat wide"><span class="label">Vision</span><span id="vision" class="value">waiting</span></span>
+  <div class="top-actions">
+    <div id="safetyBadge" class="status-pill" aria-live="polite">
+      <span class="dot"></span><span id="safetyText">Safety</span>
+    </div>
+    <label class="toggle-pill" title="Toggle detection overlay">
+      <input id="showDetections" type="checkbox" checked>
+      <span>Overlay</span>
+    </label>
+    <button class="ghost icon-btn" onclick="document.documentElement.requestFullscreen?.()" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
   </div>
-</div>
+</header>
 
-<aside id="drawer" class="drawer">
-  <h2>Camera</h2>
-  <label class="group"><span><span class="label">Crop</span><span id="cropOut" class="value">0%</span></span><input id="crop" type="range" min="0" max="75" value="0"></label>
-  <label class="group"><span>Horizontal flip</span><input id="hflip" type="checkbox"></label>
-  <label class="group"><span>Vertical flip</span><input id="vflip" type="checkbox"></label>
+<aside id="drawer" class="drawer" aria-label="Controls and settings">
+  <div class="drawer-head">
+    <h2>Controls</h2>
+    <button class="close-btn" onclick="toggleDrawer('drawer')" aria-label="Close menu">✕</button>
+  </div>
+
+  <section class="card">
+    <h3>Drive</h3>
+    <label class="field">
+      <span class="field-meta"><span class="label">Manual power</span><span id="powerOut" class="value mono">70%</span></span>
+      <input id="power" type="range" min="0" max="100" value="70">
+    </label>
+    <label class="field row">
+      <span class="label">Emote</span>
+      <select id="emoteSelect" aria-label="Run emote">
+        <option value="">Loading…</option>
+      </select>
+    </label>
+    <button id="gaugeBtn" class="btn-subtle" data-action="power-gauge" onclick="runPowerGauge()">Calibrate min power</button>
+  </section>
+
+  <section class="card">
+    <h3>Camera</h3>
+    <label class="field">
+      <span class="field-meta"><span class="label">Crop</span><span id="cropOut" class="value mono">0%</span></span>
+      <input id="crop" type="range" min="0" max="75" value="0">
+    </label>
+    <label class="field row">
+      <span>Horizontal flip</span>
+      <input id="hflip" class="switch" type="checkbox">
+    </label>
+    <label class="field row">
+      <span>Vertical flip</span>
+      <input id="vflip" class="switch" type="checkbox">
+    </label>
+  </section>
+
+  <section class="card">
+    <h3>Push to</h3>
+    <label class="field row">
+      <span class="label">Destination</span>
+      <input id="pushDestination" data-testid="push-destination" type="text" value="bottle" autocomplete="off">
+    </label>
+    <button id="pushToBtn" class="btn-subtle" data-action="push-to" onclick="pushTargetTo()">Push target to destination</button>
+  </section>
+
+  <section class="card">
+    <h3>Autonomy</h3>
+    <label class="field">
+      <span class="label">Goal</span>
+      <textarea id="autonomyGoal" data-testid="autonomy-goal" rows="3">Explore and perform one harmless, reversible bit of mischief.</textarea>
+    </label>
+    <button id="autonomyBtn" class="btn-accent" data-action="autonomy" onclick="toggleAutonomy()">Start</button>
+  </section>
 </aside>
 
+<aside id="procPanel" class="drawer proc-panel" aria-label="Test procedures">
+  <div class="drawer-head">
+    <h2>Test Procedures</h2>
+    <button class="close-btn" onclick="toggleDrawer('procPanel')" aria-label="Close tests">✕</button>
+  </div>
+
+  <section class="card">
+    <label class="field">
+      <span class="label">Procedure</span>
+      <select id="procSelect" aria-label="Test procedure"></select>
+    </label>
+    <div class="proc-box">
+      <span class="label">Setup</span>
+      <p id="procSetup" class="proc-setup">Select a procedure to view setup instructions.</p>
+    </div>
+    <div class="proc-box">
+      <span class="label">Steps</span>
+      <ol id="procSteps" class="proc-steps"></ol>
+    </div>
+    <div id="procResult" class="proc-result hide"></div>
+    <button id="procRunBtn" class="btn-accent" data-action="procedure" onclick="toggleProcedure()">Run Test</button>
+  </section>
+</aside>
+
+<div id="err" class="err hide" role="status" aria-live="polite"></div>
+
 <main class="bar" tabindex="0">
-  <label class="group">
-    <span class="stat"><span class="label">Power</span><span id="powerOut" class="value">70%</span></span>
-    <input id="power" type="range" min="0" max="100" value="70">
+  <label class="target-field">
+    <span class="target-icon" aria-hidden="true">◎</span>
+    <input id="skillTarget" data-testid="skill-target" type="text" value="person" autocomplete="off" spellcheck="false" aria-label="Skill target" placeholder="target…">
   </label>
 
-  <label class="group emote-picker">
-    <span class="label">Emote</span>
-    <select id="emoteSelect" aria-label="Run emote">
-      <option value="">Loading…</option>
-    </select>
-  </label>
+  <div class="seg-group" role="group" aria-label="Tracking skills">
+    <button id="lockBtn" class="seg" data-testid="lock-on-button" data-action="lock-on" onclick="toggleLockTarget()">Lock</button>
+    <button id="findBtn" class="seg" data-testid="find-button" data-action="find" onclick="toggleFindTarget()">Find</button>
+    <button id="followBtn" class="seg" data-testid="follow-button" data-action="follow" onclick="toggleFollowTarget()">Follow</button>
+  </div>
 
-  <label class="group"><input id="showDetections" type="checkbox" checked> Vision</label>
-  <label class="group target-lock"><span class="label">Lock</span><input id="lockTarget" type="text" value="person" autocomplete="off" spellcheck="false" aria-label="Lock target"></label>
-  <button id="lockBtn" data-action="lock-on" onclick="toggleLockTarget('normal')">Lock</button>
-  <button id="lockOdoBtn" data-action="lock-on-odometric" onclick="toggleLockTarget('odometric')">Odo Lock</button>
+  <div class="divider" aria-hidden="true"></div>
+
+  <div class="seg-group" role="group" aria-label="Object skills">
+    <button id="gotoBtn" class="seg subtle" data-testid="go-to-button" data-action="go-to" onclick="runObjectSkill('go-to')">Go</button>
+    <button id="pushBtn" class="seg subtle" data-testid="push-button" data-action="push" onclick="runObjectSkill('push')">Push</button>
+  </div>
+
   <button class="danger" onclick="stopNow()">Stop</button>
-  <button onclick="document.documentElement.requestFullscreen?.()">Full</button>
-  <button class="icon" data-action="settings" aria-label="Camera settings" onclick="$('drawer').classList.toggle('open')">Menu</button>
-  <div id="err" class="err hide"></div>
+
+  <div class="divider" aria-hidden="true"></div>
+
+  <button id="procToggleBtn" class="ghost" onclick="toggleDrawer('procPanel')">Tests</button>
+  <button id="menuToggleBtn" class="ghost" data-action="settings" aria-label="Camera settings" onclick="toggleDrawer('drawer')">Menu</button>
 </main>
 
 <script src="/static/cockpit.js"></script>

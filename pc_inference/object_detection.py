@@ -5,11 +5,20 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from resolve_label import LabelResolver
+if __package__:
+    from .resolve_label import LabelResolver
+else:  # direct script execution
+    from pathlib import Path
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from pc_inference.resolve_label import LabelResolver
+from mischief_common.nms import nms
 
 
 class ObjectYolo:
@@ -24,6 +33,7 @@ class ObjectYolo:
         self.resolver = LabelResolver(self.names)
         self.class_ids = {name.lower(): i for i, name in self.names.items()}
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
+        self._lock = threading.Lock()
 
     def class_id(self, label):
         resolved, _, _ = self.resolver.resolve(label)
@@ -41,18 +51,21 @@ class ObjectYolo:
                 "score": round(float(box.conf[0]), 3),
                 "box": [x1 / width, y1 / height, x2 / width, y2 / height],
             })
-        return detections
+        return nms(detections)
 
-    def detect(self, jpg, label=None):
+    def detect(self, jpg, label=None, imgsz=None):
         from PIL import Image
 
         img = Image.open(io.BytesIO(jpg)).convert("RGB")
         w, h = img.size
         class_id = None if label is None else self.class_id(label)
-        result = self.net.predict(
-            img, classes=None if class_id is None else [class_id], imgsz=self.imgsz, conf=self.conf,
-            device=self.device, verbose=False,
-        )[0]
+        # Ultralytics/MPS inference is not safe to enter concurrently from the
+        # ThreadingHTTPServer's request threads.
+        with self._lock:
+            result = self.net.predict(
+                img, classes=None if class_id is None else [class_id], imgsz=imgsz or self.imgsz, conf=self.conf,
+                device=self.device, verbose=False,
+            )[0]
         return ("all" if class_id is None else self.names[class_id]), self._detections(result, w, h)
 
 
@@ -107,14 +120,16 @@ def serve(args):
                 return self.resolve_label(parsed, word)
             if parsed.path not in ("/detect", "/detect-all"):
                 return self.send_error(404)
-            raw_label = None if parsed.path == "/detect-all" else (parse_qs(parsed.query).get("label") or ["person"])[0]
+            q = parse_qs(parsed.query)
+            raw_label = None if parsed.path == "/detect-all" else (q.get("label") or ["person"])[0]
+            imgsz = int((q.get("imgsz") or [detector.imgsz])[0])
             jpg = self.rfile.read(int(self.headers.get("Content-Length", "0") or 0))
             started = time.time()
             try:
-                label, detections = detector.detect(jpg, raw_label)
+                label, detections = detector.detect(jpg, raw_label, imgsz)
                 json_response(self, 200, {
                     "ok": True, "label": label, "model": detector.model, "device": detector.device,
-                    "detections": detections, "inferred_at": time.time(),
+                    "imgsz": imgsz, "detections": detections, "inferred_at": time.time(),
                     "infer_ms": round((time.time() - started) * 1000, 1),
                 })
             except ValueError as e:
@@ -130,7 +145,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8081)
-    parser.add_argument("--model", default="yolo26n.pt")
+    parser.add_argument("--model", default="yolo11s.pt")
     parser.add_argument("--imgsz", type=int, default=320)
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--device", default="")

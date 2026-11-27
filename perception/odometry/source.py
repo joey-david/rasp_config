@@ -120,7 +120,10 @@ def rpicam_gray_frames(width=160, height=120, fps=30):
             gray = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
             if gray is None:
                 continue
-            yield cv2.resize(gray, (width, height), interpolation=cv2.INTER_AREA), time.time()
+            yield (
+                cv2.resize(gray, (width, height), interpolation=cv2.INTER_AREA),
+                time.time(),
+            )
     finally:
         try:
             os.killpg(proc.pid, signal.SIGTERM)

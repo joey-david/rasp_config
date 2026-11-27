@@ -1,6 +1,11 @@
 """Small movement emote templates."""
 
-import time
+import threading
+
+from skills.runtime import timed_velocity
+
+
+_stop = threading.Event()
 
 
 TEMPLATES = {
@@ -87,11 +92,26 @@ def run(robot, name, scale=1.0):
     steps = TEMPLATES.get(str(name or "").strip())
     if not steps:
         return {"ok": False, "error": f"unknown emote {name!r}", "emotes": names()}
+    _stop.clear()
     scale = max(0.25, min(2.0, float(scale)))
+    print(f"[level2] emote start name={name!r} scale={scale:g}", flush=True)
     try:
         for linear, angular, seconds in steps:
-            robot.set_velocity(linear, angular, source=f"emote:{name}")
-            time.sleep(seconds * scale)
+            if _stop.is_set():
+                break
+            timed_velocity(
+                robot,
+                _stop,
+                linear,
+                angular,
+                seconds * scale,
+                f"emote:{name}",
+            )
     finally:
         robot.stop(source=f"emote:{name}")
-    return {"ok": True, "emote": name, "scale": scale}
+    stopped = _stop.is_set()
+    return {"ok": not stopped, "emote": name, "scale": scale, "stopped": stopped}
+
+
+def stop_emote():
+    _stop.set()

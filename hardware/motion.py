@@ -1,20 +1,22 @@
 """Layer 1 motion API: normalized movement primitives, no web/camera logic."""
 
+from __future__ import annotations
+
 import os
-import argparse
-import select
 import threading
 import time
-import sys
-import termios
-import tty
 
 try:
-    from .motors import Motors
-except ImportError:  # pragma: no cover - direct script execution
-    from motors import Motors
+    if __package__:
+        from .motors import Motors
+    else:  # pragma: no cover - direct script execution
+        from motors import Motors
+except ModuleNotFoundError as exc:  # permit fake-backend tests off the Pi
+    if exc.name != "lgpio":
+        raise
+    Motors = None
 
-WATCHDOG_SECONDS = float(os.environ.get("MOTOR_WATCHDOG_SECONDS", "10.0"))
+WATCHDOG_SECONDS = float(os.environ.get("MOTOR_WATCHDOG_SECONDS", "0.75"))
 RELEASE_IDLE_SECONDS = float(os.environ.get("MOTOR_RELEASE_IDLE_SECONDS", "5.0"))
 
 
@@ -32,7 +34,14 @@ class Motion:
     backend, remembers state, and stops stale commands through a watchdog.
     """
 
-    def __init__(self, backend: Motors | None = None, power_cap: float = 100.0):
+    def __init__(
+        self,
+        backend: Motors | None = None,
+        power_cap: float | None = None,
+        observer=None,
+    ):
+        if backend is None and Motors is None:
+            raise RuntimeError("lgpio is unavailable; pass a motor backend")
         self.backend = backend or Motors()
 
         self.left = 0.0
@@ -42,7 +51,9 @@ class Motion:
         self.angular = 0.0
         self.direction = "stopped"
         self.turning = "not"
-        self.power = max(0.0, min(100.0, float(power_cap)))
+        configured_cap = os.getenv("MOTOR_POWER", "100") if power_cap is None else power_cap
+        self.power = max(0.0, min(100.0, float(configured_cap)))
+        self.observer = observer
 
         # last command time for watchdog, and last log time for status changes
         self._last_cmd = time.time()
@@ -51,6 +62,14 @@ class Motion:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         threading.Thread(target=self._watchdog, daemon=True).start()
+
+    def _notify(self, linear: float, angular: float) -> None:
+        if not self.observer:
+            return
+        try:
+            self.observer(linear, angular)
+        except Exception as exc:
+            print(f"[motion] observer error: {exc}", flush=True)
 
     def _remember(self, left: float, right: float) -> None:
         self.left = round(clamp(left), 1)
@@ -84,8 +103,12 @@ class Motion:
         Returns:
             Current motion status.
         """
-        left = round(clamp(left), 1)
-        right = round(clamp(right), 1)
+        # Scale both wheels together so steering survives the power cap.
+        peak = max(abs(float(left)), abs(float(right)))
+        if peak > self.power > 0:
+            left, right = left * self.power / peak, right * self.power / peak
+        left = round(clamp(left, -self.power, self.power), 1)
+        right = round(clamp(right, -self.power, self.power), 1)
 
         with self._lock:
             self._last_cmd = time.time()
@@ -97,6 +120,8 @@ class Motion:
                     self.backend.last = (None, None)  # force backend retry next time
                     raise
             self._remember(left, right)
+            linear, angular = self.linear, self.angular
+        self._notify(linear, angular)
         return self.status()
 
     def set_velocity(self, linear: float, angular: float) -> dict:
@@ -121,6 +146,7 @@ class Motion:
                 self.backend.drive(0, 0)
             self._remember(0, 0)
             self.backend.close()
+        self._notify(0, 0)
 
     def release(self) -> None:
         """Release GPIO after the motors are already stopped."""

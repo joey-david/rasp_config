@@ -2,13 +2,15 @@
 *.pyc
 *.log
 *.tmp
+.env
 *.jpg
 *.jpeg
 *.mjpeg
 camera-recordings/
 recordings/
 captures/
-calibrations/
+calibrations/*
+!calibrations/turn_centering.py
 video/
 *.pt
 .old_IGNORE/

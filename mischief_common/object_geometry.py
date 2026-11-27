@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 
 def num(v, default=0.0):
     try:
@@ -24,6 +26,27 @@ def clamp_box(raw):
 def area(box):
     x1, y1, x2, y2 = box
     return max(0.0, x2 - x1) * max(0.0, y2 - y1)
+
+
+def box_metrics(box):
+    """Return image-space geometry and a deliberately non-metric depth proxy."""
+    x1, y1, x2, y2 = box
+    width, height = x2 - x1, y2 - y1
+    box_area = max(0.0, width) * max(0.0, height)
+    scale = max(height, math.sqrt(box_area), 0.02)
+    return {
+        "center": [(x1 + x2) / 2, (y1 + y2) / 2],
+        "width": width,
+        "height": height,
+        "area": box_area,
+        "bottom": y2,
+        "truncated": x1 <= 0.005 or y1 <= 0.005 or x2 >= 0.995 or y2 >= 0.995,
+        # Smaller means nearer. This is useful for ordering and servo stopping,
+        # but object dimensions are unknown, so it must never be called meters.
+        "scale": scale,
+        "relative_depth": 1.0 / scale,
+        "distance_proxy": 1.0 / scale,
+    }
 
 
 def iou(a, b):

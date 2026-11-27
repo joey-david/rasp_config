@@ -287,15 +287,17 @@ def drive():
                 affinity.rotate(box(-0.62, 6.6, 0.62, 9.8), 18 * j, origin=(0, 0))
             )
         axle_plate(side + " encoder disc", "ink", disc, s * 20 - 0.7, 32.5, 0, 1.4)
-        for dz, mat in [(0, "red"), (3, "ink")]:
+        for lane, mat in [(0, "red"), (1, "ink")]:
             wire(
                 "Motor leads",
                 mat,
                 [
-                    (mx, 32, -36),
-                    (mx + s * 5, 40, -40),
-                    (mx, 46, -46),
-                    (15 + dz, 52, -55),
+                    (mx + lane * 2, 32, -37),
+                    (s * (41 + lane * 2), 35, -47),
+                    (s * (43 + lane * 2), 40, -53),
+                    (s * (38 + lane * 2), 47, -55),
+                    (s * 25, 47, -53 + lane * 2),
+                    ((-6 if s < 0 else 13) + lane * 2.54, 45, -55),
                 ],
                 0.7,
             )
@@ -333,33 +335,36 @@ def electronics():
     for j, z in enumerate([-14, 10]):
         n = ["Pi power cable", "Motor power cable"][j]
         block(n, "seam", (-50, 87, z), (10, 6.5, 13))
-        end = pi_point(-31, 53, -28) if j == 0 else (1, 44, 68)
-        points = (
-            [
+        # Drop past the rim at either end of the tire's swept volume.
+        if j == 0:
+            points = [
                 (-54, 87, z),
-                (-63, 84, z),
-                (-66, 66, z - 7),
-                (-55, 53, -12),
-                (-51, 52, 18),
-                (-40, 53, 19),
-                end,
+                (-62, 86, -25),
+                (-61, 82, -43),
+                (-58, 68, -46),
+                (-52, 56, -39),
+                (-40, 54, -24),
+                (-36, 54, 9),
+                (-35, 53, 19),
+                pi_point(-31, 53, -28),
             ]
-            if j == 0
-            else [
+        else:
+            points = [
                 (-54, 87, z),
-                (-61, 84, 12),
-                (-59, 62, 21),
-                (-48, 47, 42),
-                (-17, 41, 65),
-                end,
+                (-61, 84, 23),
+                (-61, 81, 42),
+                (-57, 67, 46),
+                (-51, 52, 51),
+                (-27, 48, 64),
+                (-10, 45, 70),
+                (-2.5, 43, 71),
             ]
-        )
         wire(n, "seam", points, 2.0)
     block("VM power adapter", "ink", (4, 43, 71), (13, 6, 15))
-    block("VM power adapter", "metal", (4, 43, 64), (9, 3.8, 4))
+    block("VM power adapter", "metal", (4, 45.5, 64), (9, 3.8, 4))
     n = "Raspberry Pi"
     plate(n, "green", affinity.translate(rounded(82, 54, 3), 0, -3), 49, 1.7)
-    block(n, "metal", (30, 57, -16), (20, 13, 16))
+    block(n, "metal", (30, 57, -16), (20, 13, 13))
     block(n, "metal", (31, 57, 4), (18, 13, 16))
     block(n, "metal", (-31, 53, -25), (9, 4.5, 6))
     block(n, "ink", (0, 52, 0), (14, 2, 14))
@@ -399,22 +404,22 @@ def electronics():
         for mesh in batch:
             mesh.apply_transform(tilt)
             mesh.apply_translation([0, -1, 4])
-    # Flat flex loops in front of the battery and returns to the Pi connector.
+    # Wrap around the front rim before returning beneath the clear deck.
     curve = [
         (94, 32),
-        (89, 34),
-        (82, 35),
-        (74, 38),
-        (66, 45),
-        (60, 49),
-        (55, 48),
-        (51, 41),
-        (52, 30),
-        (54, 18),
+        (88, 36),
+        (83, 49),
+        (80, 62),
+        (76, 69),
+        (70, 70),
+        (64, 66),
+        (59, 54),
+        (57, 38),
+        (57, 24),
     ]
     verts = []
     faces = []
-    ribbon_path = [(5, y, z, 0) for y, z in curve[:-1]]
+    ribbon_path = [(5, y, z, 0) for y, z in curve]
     # Twist the flex through 90 degrees to meet the lengthwise CSI socket.
     for x, y, z, angle in [
         (10, 56, 17, 24),
@@ -436,9 +441,9 @@ def electronics():
     n = "TB6612FNG driver"
     block(n, "red", (6, 52, -57), (24, 20, 1.6))
     block(n, "ink", (6, 52, -58.5), (7, 7, 1.8))
-    for j in range(8):
-        for y in (44, 60):
-            bar(n, "chrome", (-3 + j * 2.54, y, -59), (-3 + j * 2.54, y, -55), 0.65, 6)
+    for j in range(9):
+        for y in (45, 60):
+            bar(n, "chrome", (-6 + j * 2.54, y, -59), (-6 + j * 2.54, y, -55), 0.65, 6)
     for j, pin in enumerate([32, 36, 31, 33, 38, 40, 37, 1, 39]):
         pad = pi_point(-32 + 2.54 * ((pin - 1) // 2), 59, -25 if pin % 2 else -22.5)
         wire(
@@ -446,10 +451,10 @@ def electronics():
             ["ink", "red", "aqua", "white"][j % 4],
             [
                 pad,
-                (-26 + j * 0.6, 64, pad[2] - 5),
-                (-20 + j * 1.1, 65, -38),
-                (-11 + j * 2, 58, -47),
-                (-3 + j * 2, 59, -56),
+                (pad[0], 65, pad[2]),
+                (-24 + j * 2.4, 66, -43),
+                (-6 + j * 2.54, 65, -53),
+                (-6 + j * 2.54, 60, -55),
             ],
             0.6,
         )
@@ -458,11 +463,12 @@ def electronics():
             "Motor supply leads",
             mat,
             [
-                (4 + j * 2, 43, 65),
-                (23 + j * 2, 46, 42),
-                (32 + j * 2, 46, -25),
-                (19 + j, 48, -49),
-                (12 + j * 2, 48, -57),
+                (4 + j * 2, 45.5, 62),
+                (18 + j * 2, 47, 56),
+                (23 + j * 2, 46, 39),
+                (23 + j * 2, 46, -25),
+                (24 + j, 46, -49),
+                (4.16 + j * 2.54, 45, -55),
             ],
             0.7,
         )

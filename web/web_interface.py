@@ -15,16 +15,21 @@ sys.path.insert(0, str(ROOT))
 
 from robot_api import robot
 from skills import emotes
+from skills.find import stop_find, status as find_status
+from skills.follow import follow, stop_follow, status as follow_status, is_running as follow_running
 from hardware.motion_udp import UDPMotionServer
 from skills.lock_on import lock_on, stop_lock, status as lock_status, is_running as lock_running
-from skills.lock_on_odometric import (
-    lock_on_odometric,
-    stop_lock as stop_odo_lock,
-    status as odo_lock_status,
-    is_running as odo_lock_running,
+from skills.procedures import (
+    is_running as procedure_running,
+    list_procedures,
+    run_procedure,
+    status as procedure_status,
+    stop_procedure,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+_skill_claim = None
+_skill_claim_lock = threading.Lock()
 
 
 class RobotServer(ThreadingHTTPServer):
@@ -32,44 +37,170 @@ class RobotServer(ThreadingHTTPServer):
     request_queue_size = 64
 
 
+def _runtime_skill_active():
+    level2 = robot.skills.status()["layer2"]
+    gauge = getattr(robot, "power_gauge", None)
+    return bool(
+        lock_running()
+        or find_status().get("running")
+        or follow_running()
+        or procedure_running()
+        or (gauge and gauge.status().get("running"))
+        or level2.get("running")
+        or robot.autonomy.status().get("running")
+    )
+
+
+def active_skill():
+    with _skill_claim_lock:
+        return bool(_skill_claim or _runtime_skill_active())
+
+
+robot.skill_active = active_skill
+
+
+def claimed_skill():
+    with _skill_claim_lock:
+        return _skill_claim
+
+
+def _claim_skill(name):
+    global _skill_claim
+    with _skill_claim_lock:
+        if _skill_claim or _runtime_skill_active():
+            return False
+        _skill_claim = name
+        return True
+
+
+def _release_skill(name):
+    global _skill_claim
+    with _skill_claim_lock:
+        if _skill_claim == name:
+            _skill_claim = None
+
+
+def _call_skill(name, call):
+    if not _claim_skill(name):
+        return 409, {"ok": False, "error": "another skill is already running"}
+    try:
+        return 200, call()
+    except Exception as exc:
+        print(f"[web] {name} failed: {exc}", flush=True)
+        return 500, {"ok": False, "error": str(exc)}
+    finally:
+        _release_skill(name)
+
+
+def _start_skill(name, call, response):
+    if not _claim_skill(name):
+        return 409, {"ok": False, "error": "another skill is already running"}
+
+    def run():
+        try:
+            call()
+        except Exception as exc:
+            print(f"[web] {name} failed: {exc}", flush=True)
+        finally:
+            _release_skill(name)
+
+    threading.Thread(target=run, daemon=True, name=name).start()
+    return 200, response
+
+
+def stop_all_skills():
+    robot.autonomy.stop()
+    robot.skills.stop()
+    gauge = getattr(robot, "power_gauge", None)
+    if gauge:
+        gauge.stop()
+    stop_find()
+    stop_follow()
+    stop_lock()
+    stop_procedure()
+    emotes.stop_emote()
+
+
 def handle_skill_post(path, body):
-    if path == "/skill/goto":
-        return 200, robot.goto(body.get("target", ""))
-    if path == "/skill/find":
-        return 200, robot.find(body.get("target", ""))
-    if path == "/skill/push":
-        return 200, robot.push(body.get("target", ""))
-    if path == "/skill/emote":
-        return 200, robot.emote(body.get("name", ""), body.get("scale", 1.0))
     if path == "/skill/stop":
-        stop_lock()
-        stop_odo_lock()
+        stop_all_skills()
         return 200, {"ok": True, "stopped": True}
-    if path not in {"/skill/lock-on", "/skill/lock-on-odometric"}:
-        return None
-    if lock_running() or odo_lock_running():
-        return 409, {
-            "ok": False,
-            "error": "lock-on already running",
-            "status": {"lock_on": lock_status(), "lock_on_odometric": odo_lock_status()},
+    if path in {"/skill/goto", "/skill/go-to"}:
+        return _call_skill("go-to", lambda: robot.goto(body.get("target", "")))
+    if path == "/skill/find":
+        return _call_skill(
+            "find",
+            lambda: robot.find(
+                body.get("target", ""),
+                body.get("search_speed", body.get("search-speed", 35)),
+                body.get("max_cycles", 15),
+            ),
+        )
+    if path == "/skill/follow":
+        target = str(body.get("target") or "person").strip() or "person"
+        return _start_skill(
+            "follow",
+            lambda: follow(
+                robot=robot,
+                target=target,
+                cycles=int(body.get("cycles") or 0),
+            ),
+            {"ok": True, "skill": "follow", "target": target},
+        )
+    if path == "/skill/push":
+        return _call_skill("push", lambda: robot.push(body.get("target", "")))
+    if path == "/skill/push-to":
+        return _call_skill(
+            "push-to",
+            lambda: robot.push_to(
+                body.get("source", body.get("target", "")),
+                body.get("destination", ""),
+            ),
+        )
+    if path == "/skill/emote":
+        return _call_skill(
+            "emote",
+            lambda: robot.emote(body.get("name", ""), body.get("scale", 1.0)),
+        )
+    if path in {"/skill/power-gauge", "/skill/calibrate-power"}:
+        kwargs = {
+            k: body[k]
+            for k in (
+                "start_power",
+                "step",
+                "max_power",
+                "pulse_seconds",
+                "settle_seconds",
+                "margin",
+                "confirm_reverse",
+            )
+            if k in body
         }
+        return _call_skill("power-gauge", lambda: robot.calibrate_power(**kwargs))
+    if path == "/skill/procedure":
+        proc_id = str(body.get("id") or "").strip()
+        target = str(body.get("target") or "person").strip() or "person"
+        valid = {p["id"] for p in list_procedures()}
+        if proc_id not in valid:
+            return 400, {"ok": False, "error": f"unknown procedure: {proc_id!r}"}
+        return _start_skill(
+            "procedure",
+            lambda: run_procedure(robot, proc_id, target=target),
+            {"ok": True, "skill": "procedure", "id": proc_id, "target": target},
+        )
+    if path != "/skill/lock-on":
+        return None
     target = str(body.get("target") or "person").strip() or "person"
-    use_odo = path == "/skill/lock-on-odometric"
-    threading.Thread(
-        target=lock_on_odometric if use_odo else lock_on,
-        daemon=True,
-        kwargs={
-            "robot": robot,
-            "target": target,
-            "track_id": body.get("track_id"),
-            "cycles": int(body.get("cycles") or 0),
-        },
-    ).start()
-    return 200, {
-        "ok": True,
-        "skill": "lock-on-odometric" if use_odo else "lock-on",
-        "target": target,
-    }
+    return _start_skill(
+        "lock-on",
+        lambda: lock_on(
+            robot=robot,
+            target=target,
+            track_id=body.get("track_id"),
+            cycles=int(body.get("cycles") or 0),
+        ),
+        {"ok": True, "skill": "lock-on", "target": target},
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -97,11 +228,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p, b = urlparse(self.path).path, self.body()
-        if p == "/drive": return self.send(200, robot.drive_keys(b.get("keys", ""), b.get("power"), b.get("seq")))
-        if p == "/motion/set_velocity": return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
+        if p == "/drive":
+            if b.get("keys") and active_skill():
+                stop_all_skills()
+                return self.send(409, {"ok": False, "error": "skill stopping; retry movement"})
+            return self.send(200, robot.drive_keys(b.get("keys", ""), b.get("power"), b.get("seq")))
+        if p == "/motion/set_velocity":
+            if active_skill():
+                return self.send(409, {"ok": False, "error": "another skill is already running"})
+            return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
         if p == "/motion/stop": return self.send(200, robot.stop(b.get("seq"), "http"))
         if p == "/odometry/rotation": return self.send(200, robot.odometry.set_rotation_target(b.get("rad_s", 0)))
-        if p == "/camera/settings": robot.camera.apply_settings(**b); return self.send(200, robot.status())
+        if p == "/camera/settings":
+            robot.apply_camera_settings(**b)
+            return self.send(200, robot.status())
+        if p == "/autonomy/start":
+            code, payload = _call_skill(
+                "autonomy-start",
+                lambda: robot.autonomy.start(b.get("goal"), b.get("max_steps", 12)),
+            )
+            return self.send(code, payload)
+        if p == "/autonomy/stop": return self.send(200, robot.autonomy.stop())
         skill_response = handle_skill_post(p, b)
         if skill_response:
             code, body = skill_response
@@ -113,14 +260,19 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/": return self.send_static("index.html", "text/html; charset=utf-8")
         if p.startswith("/static/"): return self.send_static(p.removeprefix("/static/"))
         if p == "/api/emotes": return self.send(200, {"emotes": emotes.names()})
+        if p == "/api/procedures": return self.send(200, {"procedures": list_procedures(), "status": procedure_status()})
         if p == "/api/state":
             status = robot.status()
             status["skill_runner"] = {
+                "claimed": claimed_skill(),
+                "find": find_status(),
+                "follow": follow_status(),
                 "lock_on": lock_status(),
-                "lock_on_odometric": odo_lock_status(),
+                "procedure": procedure_status(),
             }
             return self.send(200, status)
         if p == "/api/detections": return self.send(200, robot.perception.status())
+        if p == "/api/autonomy": return self.send(200, robot.autonomy.status())
         if p == "/api/odometry": return self.send(200, robot.odometry.update())
         if p == "/frame/latest.jpg":
             frame, frame_at, frame_id = robot.camera.latest()

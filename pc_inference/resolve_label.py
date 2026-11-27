@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Resolve free-form text to the nearest YOLO COCO label."""
 import sys
+import threading
 
 COCO_LABELS = tuple("person,bicycle,car,motorcycle,airplane,bus,train,truck,boat,traffic light,fire hydrant,stop sign,parking meter,bench,bird,cat,dog,horse,sheep,cow,elephant,bear,zebra,giraffe,backpack,umbrella,handbag,tie,suitcase,frisbee,skis,snowboard,sports ball,kite,baseball bat,baseball glove,skateboard,surfboard,tennis racket,bottle,wine glass,cup,fork,knife,spoon,bowl,banana,apple,sandwich,orange,broccoli,carrot,hot dog,pizza,donut,cake,chair,couch,potted plant,bed,dining table,toilet,tv,laptop,mouse,remote,keyboard,cell phone,microwave,oven,toaster,sink,refrigerator,book,clock,vase,scissors,teddy bear,hair drier,toothbrush".split(","))
 
@@ -11,6 +12,8 @@ class LabelResolver:
         self.exact = {label.lower(): label for label in self.labels}
         self.embedding_model = embedding_model
         self.encoder = self.label_embeddings = None
+        self._semantic_cache = {}
+        self._lock = threading.RLock()
 
     @staticmethod
     def _norm(text):
@@ -36,7 +39,10 @@ class LabelResolver:
             raise ValueError("empty label")
         if word in self.exact:
             return self.exact[word], "exact", 1.0
-        return self._semantic(word)
+        with self._lock:
+            if word not in self._semantic_cache:
+                self._semantic_cache[word] = self._semantic(word)
+            return self._semantic_cache[word]
 
 
 if __name__ == "__main__":
