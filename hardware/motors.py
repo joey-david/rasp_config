@@ -1,5 +1,6 @@
 """GPIO/TB6612FNG backend. Nothing above hardware.motion should import this."""
 from pathlib import Path
+import math
 import os
 
 import lgpio
@@ -39,6 +40,7 @@ class Motors:
         self.cfg = mapping or load_mapping()
         self.last = (None, None)
         self.handle = None
+        self.fault = None
         self._open()
 
     def _open(self):
@@ -56,7 +58,10 @@ class Motors:
 
     @staticmethod
     def _clamp(v):
-        return max(-100.0, min(100.0, float(v)))
+        value = float(v)
+        if not math.isfinite(value):
+            raise ValueError("motor duty must be finite")
+        return max(-100.0, min(100.0, value))
 
     def _set_one(self, name: str, speed: float):
         """Set one motor's direction pins and PWM duty cycle.
@@ -90,10 +95,22 @@ class Motors:
         self._open()
         if (left, right) == self.last:
             return
-        # set standby high if either motor is moving, low if both are stopped
-        lgpio.gpio_write(self.handle, self.cfg["standby"], int(left != 0 or right != 0))
-        self._set_one(self.cfg["left"], left)
-        self._set_one(self.cfg["right"], right)
+        moving = bool(left or right)
+        if moving and self.fault:
+            raise RuntimeError(f"motor driver fault; restart to re-arm: {self.fault}")
+        standby = self.cfg["standby"]
+        try:
+            if not moving:
+                lgpio.gpio_write(self.handle, standby, 0)
+            self._set_one(self.cfg["left"], left)
+            self._set_one(self.cfg["right"], right)
+            if moving:
+                lgpio.gpio_write(self.handle, standby, 1)
+        except Exception as exc:
+            self.last = (None, None)
+            self.fault = str(exc) or type(exc).__name__
+            lgpio.gpio_write(self.handle, standby, 0)
+            raise
         self.last = (left, right)
 
     def stop(self):
@@ -111,4 +128,4 @@ class Motors:
 
     def status(self) -> dict:
         """Return current motor status for debugging."""
-        return {"backend": "lgpio", "mapping": self.cfg, "last": self.last, "claimed": self.handle is not None}
+        return {"backend": "lgpio", "fault": self.fault, "mapping": self.cfg, "last": self.last, "claimed": self.handle is not None}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -22,7 +23,10 @@ RELEASE_IDLE_SECONDS = float(os.environ.get("MOTOR_RELEASE_IDLE_SECONDS", "5.0")
 
 def clamp(v: float, lo: float = -100.0, hi: float = 100.0) -> float:
     """Clamp a numeric motor command into the safe normalized range."""
-    return max(lo, min(hi, float(v)))
+    value = float(v)
+    if not math.isfinite(value):
+        raise ValueError("motor command must be finite")
+    return max(lo, min(hi, value))
 
 
 class Motion:
@@ -52,13 +56,13 @@ class Motion:
         self.direction = "stopped"
         self.turning = "not"
         configured_cap = os.getenv("MOTOR_POWER", "100") if power_cap is None else power_cap
-        self.power = max(0.0, min(100.0, float(configured_cap)))
+        self.power = clamp(configured_cap, 0.0, 100.0)
         self.observer = observer
 
         # last command time for watchdog, and last log time for status changes
-        self._last_cmd = time.time()
+        self._last_cmd = time.monotonic()
         self._watchdog_alive = 0.0
-        self._idle_since = time.time()
+        self._idle_since = time.monotonic()
         self._lock = threading.RLock()
         self._stop = threading.Event()
         threading.Thread(target=self._watchdog, daemon=True).start()
@@ -90,7 +94,7 @@ class Motion:
             "right" if self.angular > 0 else "left" if self.angular < 0 else "not"
         )
         self._idle_since = (
-            None if (self.left or self.right) else self._idle_since or time.time()
+            None if (self.left or self.right) else self._idle_since or time.monotonic()
         )
 
     def tank(self, left: float, right: float) -> dict:
@@ -111,7 +115,7 @@ class Motion:
         right = round(clamp(right, -self.power, self.power), 1)
 
         with self._lock:
-            self._last_cmd = time.time()
+            self._last_cmd = time.monotonic()
             if left or right or self.left or self.right:
                 try:
                     self.backend.drive(left, right)
@@ -120,9 +124,8 @@ class Motion:
                     self.backend.last = (None, None)  # force backend retry next time
                     raise
             self._remember(left, right)
-            linear, angular = self.linear, self.angular
-        self._notify(linear, angular)
-        return self.status()
+            self._notify(self.linear, self.angular)
+            return self.status()
 
     def set_velocity(self, linear: float, angular: float) -> dict:
         """Drive using normalized linear/angular commands.
@@ -146,7 +149,7 @@ class Motion:
                 self.backend.drive(0, 0)
             self._remember(0, 0)
             self.backend.close()
-        self._notify(0, 0)
+            self._notify(0, 0)
 
     def release(self) -> None:
         """Release GPIO after the motors are already stopped."""
@@ -157,24 +160,27 @@ class Motion:
     def _watchdog(self) -> None:
         """Stop the robot if no fresh command arrives within the timeout."""
         while not self._stop.is_set():
-            self._watchdog_alive = time.time()
+            self._watchdog_alive = time.monotonic()
             time.sleep(0.1)
 
             with self._lock:
                 stale = (
-                    self._last_cmd and time.time() - self._last_cmd > WATCHDOG_SECONDS
+                    self._last_cmd and time.monotonic() - self._last_cmd > WATCHDOG_SECONDS
                 )
                 moving = self.left or self.right
                 idle_release = (
                     RELEASE_IDLE_SECONDS > 0
                     and self._idle_since
-                    and time.time() - self._idle_since > RELEASE_IDLE_SECONDS
+                    and time.monotonic() - self._idle_since > RELEASE_IDLE_SECONDS
                 )
                 if idle_release:
                     self.backend.close()
-                    self._idle_since = time.time()
+                    self._idle_since = time.monotonic()
                 if stale and moving:
-                    self.stop()
+                    try:
+                        self.stop()
+                    except Exception as exc:
+                        print(f"[motion] watchdog stop failed: {exc}", flush=True)
 
     def status(self) -> dict:
         """Return detailed motion and backend state."""
@@ -190,7 +196,7 @@ class Motion:
                 "turning": self.turning,
                 "power": self.power,
                 "released": not backend.get("claimed", True),
-                "watchdog_alive": round(time.time() - self._watchdog_alive, 2)
+                "watchdog_alive": round(time.monotonic() - self._watchdog_alive, 2)
                 if self._watchdog_alive
                 else None,
                 "backend": backend,
