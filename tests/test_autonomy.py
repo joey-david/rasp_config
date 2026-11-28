@@ -5,6 +5,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+from hardware.ownership import MotionOwner
+
 from autonomy.controller import AutonomyController
 
 
@@ -51,8 +53,10 @@ class FakeSkills:
         self.stopped = True
 
 
+
 class FakeRobot:
     def __init__(self):
+        self.owner = MotionOwner()
         self.camera = FakeCamera()
         self.vision = type("Vision", (), {"exclusive": lambda _: contextlib.nullcontext()})()
         self.skills = FakeSkills()

@@ -4,6 +4,8 @@ import types
 import unittest
 from pathlib import Path
 
+from hardware.ownership import MotionOwner
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,11 +34,16 @@ class FakeAutonomy:
         self.stopped = True
 
 
+
 class FakeRobot:
     def __init__(self):
+        self.owner = MotionOwner()
         self.skills = FakeSkills()
         self.autonomy = FakeAutonomy()
         self.calls = []
+
+    def operator_stop(self, **kwargs):
+        self.owner.revoke()
 
     def goto(self, target):
         self.calls.append(("go_to", target))
@@ -95,13 +102,14 @@ class WebRouteTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
 
     def test_skill_claim_closes_startup_race(self):
-        self.assertTrue(self.web._claim_skill("first"))
+        token = self.web._claim_skill("first")
+        self.assertIsNotNone(token)
         try:
             self.assertTrue(self.web.active_skill())
             self.assertEqual(self.web.claimed_skill(), "first")
             self.assertFalse(self.web._claim_skill("second"))
         finally:
-            self.web._release_skill("first")
+            self.robot.owner.release(token)
         self.assertFalse(self.web.active_skill())
 
     def test_emergency_stop_reaches_all_owned_runners(self):

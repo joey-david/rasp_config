@@ -28,10 +28,6 @@ from skills.procedures import (
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-_skill_claim = None
-_skill_claim_lock = threading.Lock()
-
-
 class RobotServer(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 64
@@ -52,63 +48,63 @@ def _runtime_skill_active():
 
 
 def active_skill():
-    with _skill_claim_lock:
-        return bool(_skill_claim or _runtime_skill_active())
+    return bool(robot.owner.name or _runtime_skill_active())
 
 
 robot.skill_active = active_skill
 
 
 def claimed_skill():
-    with _skill_claim_lock:
-        return _skill_claim
+    return robot.owner.name
 
 
 def _claim_skill(name):
-    global _skill_claim
-    with _skill_claim_lock:
-        if _skill_claim or _runtime_skill_active():
-            return False
-        _skill_claim = name
-        return True
-
-
-def _release_skill(name):
-    global _skill_claim
-    with _skill_claim_lock:
-        if _skill_claim == name:
-            _skill_claim = None
+    if _runtime_skill_active():
+        return None
+    return robot.owner.claim(name)
 
 
 def _call_skill(name, call):
-    if not _claim_skill(name):
+    token = _claim_skill(name)
+    if token is None:
         return 409, {"ok": False, "error": "another skill is already running"}
     try:
-        return 200, call()
+        return 200, robot.owner.run(token, call)
     except Exception as exc:
         print(f"[web] {name} failed: {exc}", flush=True)
         return 500, {"ok": False, "error": str(exc)}
-    finally:
-        _release_skill(name)
 
 
 def _start_skill(name, call, response):
-    if not _claim_skill(name):
+    token = _claim_skill(name)
+    if token is None:
         return 409, {"ok": False, "error": "another skill is already running"}
 
     def run():
         try:
-            call()
+            robot.owner.run(token, call)
         except Exception as exc:
             print(f"[web] {name} failed: {exc}", flush=True)
-        finally:
-            _release_skill(name)
 
-    threading.Thread(target=run, daemon=True, name=name).start()
+    try:
+        threading.Thread(target=run, daemon=True, name=name).start()
+    except RuntimeError:
+        robot.owner.release(token)
+        raise
     return 200, response
 
 
 def stop_all_skills():
+    with robot.owner.lock:
+        robot.operator_stop(source="operator-stop")
+        barrier = robot.owner.claim("stopping")
+    try:
+        _signal_stop()
+    finally:
+        robot.owner.release(barrier)
+
+
+def _signal_stop():
     robot.autonomy.stop()
     robot.skills.stop()
     gauge = getattr(robot, "power_gauge", None)
@@ -237,7 +233,7 @@ class Handler(BaseHTTPRequestHandler):
             if active_skill():
                 return self.send(409, {"ok": False, "error": "another skill is already running"})
             return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
-        if p == "/motion/stop": return self.send(200, robot.stop(b.get("seq"), "http"))
+        if p == "/motion/stop": return self.send(200, robot.operator_stop(b.get("seq"), "http"))
         if p == "/odometry/rotation": return self.send(200, robot.odometry.set_rotation_target(b.get("rad_s", 0)))
         if p == "/camera/settings":
             robot.apply_camera_settings(**b)
@@ -248,7 +244,9 @@ class Handler(BaseHTTPRequestHandler):
                 lambda: robot.autonomy.start(b.get("goal"), b.get("max_steps", 12)),
             )
             return self.send(code, payload)
-        if p == "/autonomy/stop": return self.send(200, robot.autonomy.stop())
+        if p == "/autonomy/stop":
+            stop_all_skills()
+            return self.send(200, {"ok": True, "status": robot.autonomy.status()})
         skill_response = handle_skill_post(p, b)
         if skill_response:
             code, body = skill_response

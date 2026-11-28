@@ -4,6 +4,7 @@ import time
 import math
 
 from autonomy import AutonomyController
+from hardware.ownership import MotionOwner, owned_write
 from hardware.motion import Motion
 from hardware.safety.safety import (
     command_allowed,
@@ -73,6 +74,7 @@ class SkillMovement:
 
 class RobotAPI:
     def __init__(self):
+        self.owner = MotionOwner()
         self.camera = Camera()
         self.spatial_map = SpatialMap()
         self.motion = Motion(observer=self.spatial_map.command)
@@ -127,9 +129,9 @@ class RobotAPI:
         self._last_motion_seq = seq
         return True
 
+    @owned_write
     def stop(self, seq=None, source="stop"):
-        if not self._fresh_motion_seq(seq):
-            return self.drive_status(stale=True)
+        self._fresh_motion_seq(seq)
         self.control = {"mode": "idle", "keys": "", "source": source}
         self.key_turn_target = 0
         self._status_at = 0.0
@@ -140,6 +142,11 @@ class RobotAPI:
         if was_moving and source not in {"web", "http"}:
             print(f"[level1] stop source={source}", flush=True)
         return out
+
+    def operator_stop(self, seq=None, source="stop"):
+        with self.owner.lock:
+            self.owner.revoke()
+            return self.stop(seq=seq, source=source)
 
     def _safety_stop(self):
         out = self.motion.stop()
@@ -162,6 +169,7 @@ class RobotAPI:
         return {**out, "ok": True}
 
     # see video/script/curve_turn_tweak.png for new logic
+    @owned_write
     def drive_keys(self, keys, power=None, seq=None):
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
@@ -212,6 +220,7 @@ class RobotAPI:
         self._velocity(y * p, turn, "web")
         return self.drive_status()
 
+    @owned_write
     def drive_tank(self, left, right, seq=None, source="tank"):
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)
@@ -223,6 +232,7 @@ class RobotAPI:
             self._safety_stop()
         return self.drive_status()
 
+    @owned_write
     def set_velocity(self, linear, angular, seq=None, source="layer2"):
         if not self._fresh_motion_seq(seq):
             return self.drive_status(stale=True)

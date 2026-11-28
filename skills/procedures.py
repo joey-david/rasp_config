@@ -145,11 +145,10 @@ def _step_find(robot, target: str) -> dict:
     }
 
 
-def _run_sampled_skill(target_fn, status_fn, stop_fn, duration_s: float, step_name: str) -> dict:
+def _run_sampled_skill(robot, target_fn, status_fn, stop_fn, duration_s: float, step_name: str) -> dict:
     started = time.monotonic()
     samples = []
-    worker = threading.Thread(target=target_fn, daemon=True)
-    worker.start()
+    worker = robot.owner.thread(target_fn, name=step_name)
     last_key = None
     deadline = started + float(duration_s)
     try:
@@ -215,6 +214,7 @@ def _run_sampled_skill(target_fn, status_fn, stop_fn, duration_s: float, step_na
 
 def _step_lock(robot, target: str, duration_s: float = 8.0) -> dict:
     return _run_sampled_skill(
+        robot,
         lambda: lock_skill.lock_on(robot, target=target),
         lock_skill.status,
         lock_skill.stop_lock,
@@ -230,6 +230,7 @@ def _step_follow(robot, target: str, duration_s: float = 6.0) -> dict:
         reason = edge.get("reason") or "edge safety not ready"
         return {"step": "follow", "ok": False, "error": reason, "summary": f"blocked: {reason}"}
     return _run_sampled_skill(
+        robot,
         lambda: follow_skill.follow(robot, target=target),
         follow_skill.status,
         follow_skill.stop_follow,

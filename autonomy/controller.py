@@ -56,11 +56,11 @@ class AutonomyController:
                 "running": True, "phase": "starting", "goal": goal,
                 "step": 0, "max_steps": max_steps, "trace": [], "error": "",
             }
-            self._thread = threading.Thread(
-                target=self._run, args=(goal, max_steps), daemon=True, name="autonomy"
-            )
-            print(f"[level3] autonomy start goal={goal!r} max_steps={max_steps}", flush=True)
-            self._thread.start()
+            try:
+                self._thread = self.robot.owner.thread(lambda: self._run(goal, max_steps), name="autonomy")
+            except RuntimeError as exc:
+                self._update(running=False, phase="failed")
+                return {"ok": False, "error": str(exc)}
         return {"ok": True, "status": self.status()}
 
     def stop(self):

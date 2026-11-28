@@ -33,7 +33,7 @@ class UDPMotionServer:
                 msg = json.loads(data.decode("utf-8"))
                 seq = msg.get("seq")
                 if msg.get("stop"):
-                    self.robot.stop(seq=seq, source="udp")
+                    self.robot.operator_stop(seq=seq, source="udp")
                 else:
                     self.robot.set_velocity(msg.get("linear", 0), msg.get("angular", 0), seq=seq, source="udp")
             except socket.timeout:
