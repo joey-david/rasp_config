@@ -25,7 +25,6 @@ class RobotOdometry:
         self.angular = AngularSpeedEstimator(fx_px=fx_px)
         self.linear = LinearSpeedEstimator()
         self.min_score = min_score
-        self.target_rad_s = 0.0
         self.last = {"rad_s": 0.0, "fresh": False, "score": 0.0}
         self._frame_id = None
 
@@ -81,17 +80,6 @@ class RobotOdometry:
             "linear_score": float(l_score),
         }
 
-    def _gray(self):
-        if cv2 is None or np is None:
-            return None, 0.0, None, "opencv unavailable"
-        frame, frame_at, frame_id = self.robot.camera.latest()
-        if not frame or frame_id == self._frame_id:
-            return None, frame_at, frame_id, "no new frame"
-        gray = self._decode_gray(frame)
-        if gray is None:
-            return None, frame_at, frame_id, "decode failed"
-        return gray, frame_at or time.time(), frame_id, ""
-
     def reset(self):
         self.angular.prev = None
         self.angular.prev_t = None
@@ -100,11 +88,13 @@ class RobotOdometry:
         self._frame_id = None
         self.last = {"rad_s": 0.0, "fresh": False, "score": 0.0}
 
-    def update(self):
-        gray, frame_at, frame_id, error = self._gray()
-        if gray is None:
-            self.last = {**self.last, "fresh": False, "error": error}
-            return self.last
+    def observe_gray(self, gray, frame_at, frame_id):
+        if frame_id == self._frame_id:
+            return
+        previous = self.last.get("frame_at")
+        if previous is None or not 0 < frame_at - previous <= 0.5:
+            self.reset()
+        gray = cv2.resize(gray, (DEFAULT_WIDTH, DEFAULT_HEIGHT), interpolation=cv2.INTER_AREA)
         self._frame_id = frame_id
         angular = self.angular.update(gray, frame_at)
         linear = self.linear.update(gray, frame_at)
@@ -114,7 +104,7 @@ class RobotOdometry:
                 "fresh": False,
                 "score": 0.0,
                 "frame_id": frame_id,
-                "target_rad_s": self.target_rad_s,
+                "frame_at": frame_at,
             }
             return self.last
         angular_fresh = angular["score"] >= self.min_score
@@ -132,17 +122,12 @@ class RobotOdometry:
             "dy": linear["dy"],
             "relative_linear_px_s": linear["dy"] / linear["dt"],
             "frame_id": frame_id,
-            "target_rad_s": self.target_rad_s,
+            "frame_at": frame_at,
         }
         return self.last
 
-    def rotation_rad_s(self):
-        return self.update().get("rad_s", 0.0)
-
-    def set_rotation_target(self, rad_s):
-        self.target_rad_s = float(rad_s)
-        self.last = {**self.last, "target_rad_s": self.target_rad_s}
-        return self.status()
-
     def status(self):
-        return {**self.last, "target_rad_s": self.target_rad_s}
+        sample = dict(self.last)
+        if not 0 <= time.time() - sample.get("frame_at", 0) <= 0.5:
+            sample.update(fresh=False, linear_fresh=False)
+        return sample

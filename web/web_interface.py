@@ -234,7 +234,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(409, {"ok": False, "error": "another skill is already running"})
             return self.send(200, robot.set_velocity(b.get("linear", 0), b.get("angular", 0), b.get("seq"), "http"))
         if p == "/motion/stop": return self.send(200, robot.operator_stop(b.get("seq"), "http"))
-        if p == "/odometry/rotation": return self.send(200, robot.odometry.set_rotation_target(b.get("rad_s", 0)))
         if p == "/camera/settings":
             robot.apply_camera_settings(**b)
             return self.send(200, robot.status())
@@ -271,7 +270,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, status)
         if p == "/api/detections": return self.send(200, robot.perception.status())
         if p == "/api/autonomy": return self.send(200, robot.autonomy.status())
-        if p == "/api/odometry": return self.send(200, robot.odometry.update())
+        if p == "/api/odometry": return self.send(200, robot.odometry.status())
         if p == "/frame/latest.jpg":
             frame, frame_at, frame_id = robot.camera.latest()
             headers = {"X-Captured-At": frame_at, "X-Frame-Id": frame_id}

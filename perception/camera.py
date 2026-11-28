@@ -73,6 +73,7 @@ class Camera:
         self.frame, self.frame_at, self.frame_id, self.error = None, 0, 0, ""
         self.maximum_size = f"{STILL_WIDTH}x{STILL_HEIGHT}"
         self.gray, self.gray_at, self._gray_source_at = None, 0, 0
+        self.on_gray = None
         self._capture_id = 0
         self._version = 0
         self._proc = None
@@ -188,7 +189,13 @@ class Camera:
                             self.gray = gray
                             self.gray_at = now
                             self._gray_source_at = now
+                        published_id = self.frame_id
                         self._cv.notify_all()
+                    if gray is not None and self.on_gray is not None:
+                        try:
+                            self.on_gray(gray, now, published_id)
+                        except cv2.error as exc:
+                            print(f"[odometry] frame {published_id}: {exc}", flush=True)
             except Exception as e:
                 with self._cv:
                     self.error = str(e)

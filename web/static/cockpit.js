@@ -761,7 +761,6 @@ $("procSelect")?.addEventListener("change", () => renderSelectedProcedure(lastSt
 
 setInterval(() => { if(down.size) sendDrive() }, CONTROL_MS);
 setInterval(refreshState, 350);
-setInterval(() => fetch("/api/odometry").then(r => r.json()).then(paintOdometry).catch(() => {}), 150);
 
 refreshState();
 loadEmotes();

@@ -55,12 +55,6 @@ class SkillMovement:
     def stop(self, seq=None, source="skill"):
         return self.robot.stop(seq=seq, source=source)
 
-    def rotation_rad_s(self):
-        return self.robot.odometry.rotation_rad_s()
-
-    def set_rotation_target(self, rad_s):
-        return self.robot.odometry.set_rotation_target(rad_s)
-
     def turn_bounds(self, default_max=TURN_MAX):
         return self.robot.power_gauge.turn_bounds(
             default_max=default_max, power_cap=self.robot.motion.power
@@ -81,6 +75,7 @@ class RobotAPI:
         self.perception = RemotePerception()
         self.vision = VisionScanner(self)
         self.odometry = RobotOdometry(self)
+        self.camera.on_gray = self.odometry.observe_gray
         self.power_gauge = PowerGauge()
         self.skills = ObjectSkills(self)
         self.movement = SkillMovement(self)
