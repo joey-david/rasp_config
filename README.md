@@ -48,7 +48,7 @@ Install the server dependencies:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r pc_inference/requirements-planner.txt
 ```
 
 Test the full HTTP path without a model or API key:
@@ -62,6 +62,7 @@ For local inference on a 16 GB Apple silicon Mac, start the bundled 4-bit
 Qwen3-VL 8B model, then start the planner shim in another terminal:
 
 ```sh
+.venv/bin/pip install -r pc_inference/requirements-local-vlm.txt
 bin/start-vlm-inference.sh
 ```
 

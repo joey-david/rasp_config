@@ -1,0 +1,2 @@
+-r requirements-planner.txt
+mlx-vlm>=0.6.7

@@ -6,9 +6,6 @@ cd "$(dirname "$0")/.."
 UV_BIN="${UV_BIN:-/opt/homebrew/bin/uv}"
 
 exec "$UV_BIN" run --python 3.11 \
-  --with mlx \
-  --with mlx-embedding-models \
-  --with 'transformers<5' \
   --with ultralytics \
   --with pillow \
   pc_inference/object_detection.py \

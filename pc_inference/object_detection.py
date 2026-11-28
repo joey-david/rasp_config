@@ -37,7 +37,7 @@ class ObjectYolo:
 
     def class_id(self, label):
         resolved, _, _ = self.resolver.resolve(label)
-        return self.class_ids[resolved]
+        return self.class_ids[resolved.lower()]
 
     def _detections(self, result, width, height):
         detections = []

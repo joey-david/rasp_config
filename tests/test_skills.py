@@ -128,6 +128,10 @@ class ObjectSkillTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("toward", result["error"])
 
+    @patch("skills.objects.detect_all", return_value=([], {"error": "expired detection"}))
+    def test_expired_frame_does_not_clear_path(self, _detect):
+        self.assertEqual(ObjectSkills(FakeRobot())._blocked("bottle"), "vision unavailable")
+
     @patch("skills.objects.detect_all", side_effect=OSError("camera offline"))
     def test_blocker_check_fails_closed_when_vision_fails(self, _detect):
         skills = ObjectSkills(FakeRobot())

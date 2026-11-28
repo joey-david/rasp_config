@@ -115,7 +115,10 @@ class ObjectSkills:
         counts = {}
         for _ in range(3):
             try:
-                detections, _ = detect_all(self.robot, timeout=1.0)
+                detections, meta = detect_all(self.robot, timeout=1.0)
+                if meta.get("error"):
+                    self._update(error=meta["error"])
+                    return "vision unavailable"
             except Exception as exc:
                 self._update(error=str(exc))
                 return "vision unavailable"
