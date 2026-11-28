@@ -118,8 +118,7 @@ Deploy from the Mac:
 PI_HOST=rpi bin/deploy-pi.sh
 ```
 
-The deploy command uses SSH, syncs the robot code, installs the systemd unit,
-and restarts `mischief-bot.service`. The Pi user needs password-free `sudo` for
+Deployment stages a new release under `$PI_DIR/.local/share/mischief-bot/releases`, stops motion, and switches the `current` link. It checks for fresh camera data, ready edge safety and stopped wheels. A failed activation restores the previous link and unit. The Pi user needs password-free `sudo` for
 those service commands, or you can set `PI_SUDO_PASSWORD` for that run.
 
 View live coordinated logs:
