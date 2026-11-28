@@ -2,7 +2,6 @@
 
 import math
 import threading
-import time
 
 from mischief_common.filters import is_environmental
 from mischief_common.object_geometry import box_metrics, iou
@@ -99,15 +98,6 @@ class ObjectSkills:
         seconds = max(0.10, min(0.28, abs(error) * 0.72))
         return self._pulse(0, turn, seconds, "centering")
 
-    def _await_live_stream(self, since, timeout=3.0):
-        camera = getattr(self.robot, "camera", None)
-        if getattr(camera, "gray_at", None) is None:
-            return
-        end = time.time() + timeout
-        while (camera.gray_at or 0) <= since and time.time() < end:
-            if self._stop.wait(0.03):
-                return
-
     def _forward_power(self):
         return forward_bounds(self.robot, FORWARD_POWER)[0]
 
@@ -176,15 +166,11 @@ class ObjectSkills:
                 threshold = CONTACT_SCALE if contact else GOTO_SCALE
                 close_by_bottom = det["box"][3] >= (0.96 if contact else 0.90) and scale >= 0.25
                 if scale >= threshold or close_by_bottom:
-                    # Contact decisions get one slow, maximum-resolution check.
+                    # Confirm on fresh frames while edge monitoring keeps its stream.
                     if contact:
-                        captured = time.time()
                         confirmed, final_meta = detect_target_samples(
-                            self.robot, label, cx, attempts=3, timeout=12, maximum=True
+                            self.robot, label, cx, attempts=3, timeout=1.5
                         )
-                        # Full-resolution stills pause the stream; Level 0 vetoes
-                        # forward motion until a fresh grayscale frame arrives.
-                        self._await_live_stream(captured)
                         if not confirmed:
                             return det, cycle, final_meta, "contact position not confirmed"
                         det, scale = confirmed, _scale(confirmed)

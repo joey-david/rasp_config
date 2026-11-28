@@ -34,11 +34,8 @@ def _idle_for_learning(robot):
 
 
 def check(robot, learn=None):
-    return _edge.check(
-        getattr(robot.camera, "gray", None),
-        getattr(robot.camera, "gray_at", None),
-        learn=_idle_for_learning(robot) if learn is None else bool(learn),
-    )
+    gray, captured = robot.camera.latest_gray()
+    return _edge.check(gray, captured, learn=_idle_for_learning(robot) if learn is None else bool(learn))
 
 
 def _monitor_dead():
@@ -57,14 +54,16 @@ def command_allowed(robot, linear):
             print(f"[level0] forward veto: {veto}", flush=True)
         _last_veto = veto
         return False
-    edge = check(robot, learn=False)
+    edge = _edge.last
     if not edge.get("enabled", True):
         _last_veto = ""
         return True
-    if edge.get("ready") and not edge.get("danger"):
+    frame_at = edge.get("frame_at", 0)
+    fresh = 0 <= time.time() - frame_at <= _edge.stale_seconds
+    if fresh and edge.get("ready") and not edge.get("danger"):
         _last_veto = ""
         return True
-    veto = edge.get("reason", "edge safety unavailable")
+    veto = edge.get("reason", "edge safety unavailable") if fresh else "stale camera"
     if veto != _last_veto:
         print(f"[level0] forward veto: {veto}", flush=True)
     _last_veto = veto

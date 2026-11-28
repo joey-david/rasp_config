@@ -73,6 +73,7 @@ class Camera:
         self.frame, self.frame_at, self.frame_id, self.error = None, 0, 0, ""
         self.maximum_size = f"{STILL_WIDTH}x{STILL_HEIGHT}"
         self.gray, self.gray_at, self._gray_source_at = None, 0, 0
+        self._capture_id = 0
         self._version = 0
         self._proc = None
         self._capture_active = False
@@ -176,10 +177,11 @@ class Camera:
                     if now - self._gray_source_at >= 1 / max(1.0, GRAY_HZ):
                         gray = self.make_gray(cropped)
                     with self._cv:
+                        self._capture_id += 1
                         self.frame, self.frame_at, self.frame_id, self.error = (
                             cropped,
                             now,
-                            self.frame_id + 1,
+                            self._capture_id,
                             "",
                         )
                         if gray is not None:
@@ -268,9 +270,8 @@ class Camera:
                 if out:
                     out = self.crop(out)
                     with self._cv:
-                        self.frame_at = time.time()
-                        self.frame_id += 1
-                        return out, self.frame_at, self.frame_id
+                        self._capture_id += 1
+                        return out, time.time(), self._capture_id
             except Exception as e:
                 with self._cv:
                     self.error = f"maximum snapshot failed: {e}"
@@ -283,6 +284,10 @@ class Camera:
             with self._cv:
                 self.error = self.error or "maximum snapshot failed: no fallback frame"
         return frame, frame_at, frame_id
+
+    def latest_gray(self):
+        with self._cv:
+            return self.gray, self.gray_at
 
     def latest(self):
         with self._cv:

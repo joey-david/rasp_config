@@ -115,14 +115,11 @@ class SafetyMonitorTests(unittest.TestCase):
         class FlakyCamera:
             calls = 0
 
-            @property
-            def gray(self):
+            def latest_gray(self):
                 FlakyCamera.calls += 1
                 if FlakyCamera.calls == 1:
                     raise RuntimeError("transient")
-                return None
-
-            gray_at = None
+                return None, 0
 
         safety.start(self._robot(FlakyCamera()))
         deadline = time.time() + 2
