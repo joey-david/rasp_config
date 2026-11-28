@@ -73,9 +73,15 @@ def _post_jpeg(robot, url, timeout, frame, captured_at, frame_id):
         "X-Frame-Id": str(frame_id),
     })
     request_started = time.time()
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    frame_age = request_started - captured_at
+    if not 0 <= frame_age < timeout:
+        return None, [], {"error": "expired camera frame", "frame_id": frame_id}
+    deadline = time.monotonic() + timeout - frame_age
+    with urllib.request.urlopen(req, timeout=timeout - frame_age) as response:
         out = json.loads(response.read().decode())
     request_done = time.time()
+    if time.monotonic() >= deadline:
+        return None, [], {"error": "expired detection", "frame_id": frame_id}
     if image_size:
         out["image_size"] = image_size
     return out, (captured_at, frame_id, request_started, request_done), {}
@@ -111,7 +117,7 @@ def _ingest(robot, out, timing, source):
             "infer_ms": out.get("infer_ms"),
         },
     })
-    return detections, {"infer_ms": out.get("infer_ms"), "frame_id": frame_id, "image_size": out.get("image_size")}
+    return detections, {"infer_ms": out.get("infer_ms"), "frame_id": frame_id, "captured_at": captured_at, "image_size": out.get("image_size")}
 
 
 def detect(robot, target, timeout=0.45, detect_url=DETECT_URL):

@@ -10,7 +10,7 @@ import urllib.request
 
 from fastapi import FastAPI, Header, HTTPException
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 SYSTEM = """You plan one step at a time for a small wheeled robot.
@@ -28,6 +28,7 @@ class PlanRequest(BaseModel):
     goal: str
     observation: dict
     image_jpeg: str | None = None
+    timeout_seconds: float = Field(default=60, gt=0, le=120)
 
 
 class VLM:
@@ -77,7 +78,7 @@ class VLM:
             f"{self.base_url}/chat/completions",
             data=json.dumps(body).encode(), method="POST", headers=headers,
         )
-        with urllib.request.urlopen(req, timeout=120) as response:
+        with urllib.request.urlopen(req, timeout=request.timeout_seconds) as response:
             out = json.loads(response.read().decode())
         content = out["choices"][0]["message"]["content"]
         if isinstance(content, list):

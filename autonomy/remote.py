@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+import time
 import urllib.request
 
 
@@ -13,7 +14,13 @@ class RemotePlanner:
         self.token = os.getenv("VLM_PLANNER_TOKEN", "")
 
     def plan(self, goal, observation, frame=None):
-        body = {"goal": goal, "observation": observation}
+        budget = self.timeout
+        captured = observation.get("captured_at")
+        if captured is not None and "max_age_seconds" in observation:
+            budget = min(budget, observation["max_age_seconds"] - (time.time() - captured))
+        if budget <= 0:
+            raise TimeoutError("planner observation expired")
+        body = {"goal": goal, "observation": observation, "timeout_seconds": budget}
         if frame:
             body["image_jpeg"] = base64.b64encode(frame).decode("ascii")
         headers = {"Content-Type": "application/json"}
@@ -30,7 +37,7 @@ class RemotePlanner:
             f"{len(observation.get('detections') or [])} frame={bool(frame)}",
             flush=True,
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with urllib.request.urlopen(request, timeout=budget) as response:
             payload = json.loads(response.read().decode())
         if not payload.get("ok", True):
             raise RuntimeError(payload.get("error", "remote planner failed"))

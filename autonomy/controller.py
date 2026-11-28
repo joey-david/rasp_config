@@ -2,6 +2,7 @@
 
 import os
 import threading
+import time
 
 from perception.vision import capture_detect_all
 from skills import emotes
@@ -29,6 +30,7 @@ class AutonomyController:
     def __init__(self, robot, planner=None):
         self.robot = robot
         self.planner = planner or RemotePlanner()
+        self.plan_max_age = float(os.getenv("PLAN_MAX_AGE_SECONDS", "5"))
         self.allow_contact = os.getenv("AUTONOMY_ALLOW_CONTACT", "0").lower() in {"1", "true", "yes"}
         self._stop = threading.Event()
         self._thread = None
@@ -89,7 +91,8 @@ class AutonomyController:
                 "one_action_per_step": True,
                 "contact_enabled": self.allow_contact,
                 "depth_is_metric": False,
-                "allowed_actions": {name: list(args) for name, args in ALLOWED.items()},
+                "allowed_actions": {name: list(args) for name, args in ALLOWED.items()
+                                    if self.allow_contact or name not in {"push", "push_to"}},
                 "emotes": emotes.names(),
             },
             "recent_actions": self._state.get("trace", [])[-4:],
@@ -102,6 +105,9 @@ class AutonomyController:
                 return None, None
             frame, detections, meta = capture_detect_all(self.robot, timeout=2.0)
             observation = self._observation()
+            observation["frame_id"] = meta.get("frame_id")
+            observation["captured_at"] = meta.get("captured_at")
+            observation["max_age_seconds"] = self.plan_max_age
         print(
             f"[stack] sense frame={meta.get('frame_id')} detections={len(detections)} "
             f"infer_ms={meta.get('infer_ms')}",
@@ -193,6 +199,12 @@ class AutonomyController:
                     print("[level3] discarded planner response after stop", flush=True)
                     break
                 action = self._validate(proposed)
+                captured_at = observation.get("captured_at")
+                if action["action"] not in {"stop", "observe", "wait"} and (
+                    captured_at is None or not 0 <= time.time() - captured_at <= self.plan_max_age
+                ):
+                    self._update(phase="expired-plan", error="scene expired before dispatch")
+                    continue
                 print(f"[autonomy] step {step}/{max_steps}: {action}", flush=True)
                 self._update(phase="acting", action=action)
                 result = self._execute(action)

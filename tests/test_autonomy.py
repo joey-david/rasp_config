@@ -1,6 +1,7 @@
 import contextlib
 import os
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -84,7 +85,7 @@ class CoordinatedAutonomyTests(unittest.TestCase):
             return_value=(
                 b"same-frame-jpeg",
                 [{"label": "bottle"}],
-                {"frame_id": 7, "infer_ms": 12.0},
+                {"captured_at": time.time(), "frame_id": 7, "infer_ms": 12.0},
             ),
         )
         self.capture.start()
@@ -106,6 +107,14 @@ class CoordinatedAutonomyTests(unittest.TestCase):
         self.assertEqual(status["phase"], "complete")
         self.assertEqual(len(status["trace"]), 3)
         self.assertIn(("go_to", "bottle"), robot.calls)
+
+    def test_expired_scene_cannot_dispatch_movement(self):
+        robot = FakeRobot()
+        controller = AutonomyController(robot, SequencePlanner())
+        controller.plan_max_age = 0
+        controller.start("stale scene", max_steps=3)
+        controller._thread.join(timeout=2)
+        self.assertNotIn(("go_to", "bottle"), robot.calls)
 
     def test_stop_discards_in_flight_planner_action(self):
         robot, planner = FakeRobot(), BlockingPlanner()
